@@ -428,12 +428,13 @@ async function doSearch() {
     const sql = `
       SELECT
         p.id, p.name, p.nationality, p.position, p.photo_url,
-        COUNT(DISTINCT CASE WHEN ${EXCL_CONDITION} THEN s.club_id END) AS club_count
+        COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) AS club_count
       FROM players p
       LEFT JOIN player_club_stints s ON s.player_id = p.id ${leagueJoinClause}
+      LEFT JOIN competition_types ct ON ct.league_name = s.league_name
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
-      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN ${EXCL_CONDITION} THEN s.club_id END) >= ${minClubs}` : ''}
+      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) >= ${minClubs}` : ''}
       ORDER BY club_count DESC, p.name
       LIMIT 80
     `;
