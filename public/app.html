@@ -179,6 +179,17 @@
   .reset-btn:hover { background: var(--surface); }
 
   .notice { background: #fff8e1; border: 1px solid #ffe082; border-radius: var(--radius); padding: 10px 14px; font-size: 13px; color: #6d4c00; margin-bottom: 16px; }
+
+  .season-summary-row:hover td { background: var(--surface); }
+  .caret { font-size: 14px; color: var(--ink-mute); margin-left: 4px; display: inline-block; transition: transform 0.15s; }
+  .breakdown-row td { background: #fafafa; }
+  .comp-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .comp-badge.comp-league { background: var(--green-light); color: var(--green); }
+  .comp-badge.comp-domestic-cup { background: #fff3e0; color: #e65100; }
+  .comp-badge.comp-continental-competition { background: #e3f2fd; color: #1565c0; }
+  .comp-badge.comp-international { background: #f3e5f5; color: #6a1b9a; }
+  .comp-badge.comp-youth { background: #e8f5e9; color: #2e7d32; }
+  .comp-badge.comp-other { background: var(--surface); color: var(--ink-mute); }
 </style>
 </head>
 <body>
@@ -381,19 +392,9 @@ function debounceSearch() {
   debounceTimer = setTimeout(doSearch, 350);
 }
 
-// Leagues that are competitions, not clubs — excluded from club counts
-const COMPETITION_LEAGUES = [
-  'UEFA Champions League', 'UEFA Europa League', 'UEFA Europa Conference League',
-  'UEFA Nations League', 'UEFA Youth League',
-  'UEFA U17 Championship', 'UEFA U17 Championship - Qualification',
-  'UEFA U19 Championship', 'UEFA U19 Championship - Qualification',
-  'UEFA U21 Championship', 'UEFA U21 Championship - Qualification',
-  'World Cup - Qualification Europe', 'World Cup - Qualification South America',
-  'World Cup - U17', 'Friendlies', 'Leagues Cup',
-  'Premier League International Cup', 'Sudamericano U20',
-];
-// SQL fragment to exclude competition leagues
-const EXCL_LEAGUES = COMPETITION_LEAGUES.map(l => `'${l.replace("'","''")}'`).join(',');
+// Competition type check — joins competition_types table
+// 'League' = counts as a club stint; everything else is a competition
+const IS_LEAGUE = `ct.competition_type = 'League'`;
 
 async function doSearch() {
   const q           = document.getElementById('searchInput').value.trim();
@@ -427,12 +428,12 @@ async function doSearch() {
     const sql = `
       SELECT
         p.id, p.name, p.nationality, p.position, p.photo_url,
-        COUNT(DISTINCT CASE WHEN s.league_name NOT IN (${EXCL_LEAGUES}) THEN s.club_id END) AS club_count
+        COUNT(DISTINCT CASE WHEN ${EXCL_CONDITION} THEN s.club_id END) AS club_count
       FROM players p
       LEFT JOIN player_club_stints s ON s.player_id = p.id ${leagueJoinClause}
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
-      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN s.league_name NOT IN (${EXCL_LEAGUES}) THEN s.club_id END) >= ${minClubs}` : ''}
+      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN ${EXCL_CONDITION} THEN s.club_id END) >= ${minClubs}` : ''}
       ORDER BY club_count DESC, p.name
       LIMIT 80
     `;
@@ -483,12 +484,14 @@ async function loadPlayerFromDb(playerId) {
         p.date_of_birth, p.position, p.photo_url, p.career_fetched,
         s.season_year, s.league_name, s.league_country,
         s.appearances, s.goals, s.assists, s.minutes,
-        c.id AS club_id, c.name AS club_name, c.logo_url AS club_logo, c.country AS club_country
+        c.id AS club_id, c.name AS club_name, c.logo_url AS club_logo, c.country AS club_country,
+        COALESCE(ct.competition_type, 'Other') AS competition_type
       FROM players p
       JOIN player_club_stints s ON s.player_id = p.id
       JOIN clubs c ON c.id = s.club_id
-      WHERE p.id = $1 AND s.appearances > 0 AND s.league_name NOT IN ('UEFA Champions League','UEFA Europa League','UEFA Europa Conference League','UEFA Nations League','UEFA Youth League','UEFA U17 Championship','UEFA U17 Championship - Qualification','UEFA U19 Championship','UEFA U19 Championship - Qualification','UEFA U21 Championship','UEFA U21 Championship - Qualification','World Cup - Qualification Europe','World Cup - Qualification South America','World Cup - U17','Friendlies','Leagues Cup','Premier League International Cup','Sudamericano U20')
-      ORDER BY s.season_year, c.name
+      LEFT JOIN competition_types ct ON ct.league_name = s.league_name
+      WHERE p.id = $1 AND s.appearances > 0
+      ORDER BY s.season_year, ct.competition_type, c.name
     `, [playerId]);
 
     if (!data.rows.length) throw new Error('No career data found for this player');
@@ -512,7 +515,7 @@ async function loadPlayerFromDb(playerId) {
           seasons: [], totalApps: 0, totalGoals: 0, totalAssists: 0, totalMinutes: 0
         };
       }
-      clubMap[key].seasons.push({ season: row.season_year, league: row.league_name, apps: row.appearances, goals: row.goals, assists: row.assists, mins: row.minutes });
+      clubMap[key].seasons.push({ season: row.season_year, league: row.league_name, competitionType: row.competition_type, apps: row.appearances, goals: row.goals, assists: row.assists, mins: row.minutes });
       clubMap[key].totalApps     += row.appearances || 0;
       clubMap[key].totalGoals    += row.goals || 0;
       clubMap[key].totalAssists  += row.assists || 0;
@@ -593,20 +596,16 @@ async function loadPlayerFromApi(apiPlayerId) {
 function renderDetail(player, clubs) {
   const totalApps  = clubs.reduce((s,c) => s + c.totalApps, 0);
   const totalGoals = clubs.reduce((s,c) => s + c.totalGoals, 0);
-  const totalMins  = clubs.reduce((s,c) => s + c.totalMinutes, 0);
   const photo = player.photo_url || player.photo || '';
   const dob = player.date_of_birth ? player.date_of_birth.toString().slice(0,10) : null;
+  const meta = [player.nationality, player.position].filter(Boolean).join(' · ');
 
   let html = `
     <div class="player-hero">
       <div class="player-hero-photo">${photo ? `<img src="${esc(photo)}" onerror="this.parentElement.textContent='⚽'" />` : '⚽'}</div>
       <div class="player-hero-info">
         <h2>${esc(player.name)}</h2>
-        <div class="hero-meta">
-          <span>${esc(player.nationality || '—')}</span>
-          <span>${esc(player.position || '—')}</span>
-          ${dob ? `<span>b. ${dob}</span>` : ''}
-        </div>
+        ${meta ? `<div class="hero-meta"><span>${esc(meta)}</span>${dob ? `<span>b. ${dob}</span>` : ''}</div>` : ''}
       </div>
       <div class="hero-stats">
         <div class="hero-stat"><div class="hero-stat-num">${clubs.length}</div><div class="hero-stat-label">Clubs</div></div>
@@ -617,26 +616,68 @@ function renderDetail(player, clubs) {
     <div class="section-title">Career by season</div>
     <div class="career-table-wrap">
       <table class="career-table">
-        <thead><tr><th>Club</th><th>League</th><th>Season</th><th>Apps</th><th>Goals</th><th>Ast</th><th>Mins</th></tr></thead>
+        <thead><tr><th>Club</th><th>Season</th><th>Apps</th><th>Goals</th><th>Ast</th><th>Mins</th></tr></thead>
         <tbody>`;
 
   for (const club of clubs) {
-    const sorted = [...club.seasons].sort((a,b) => (a.season||0) - (b.season||0));
-    for (const s of sorted) {
-      html += `<tr>
-        <td><div class="club-cell">${club.clubLogo ? `<img class="club-logo" src="${esc(club.clubLogo)}" onerror="this.style.display='none'" />` : `<div class="club-logo-ph"></div>`}<span class="club-name-text">${esc(club.clubName)}</span></div></td>
-        <td style="font-size:12px;color:var(--ink-mute)">${esc(s.league || '—')}</td>
-        <td><span class="season-tag">${s.season ? `${s.season}/${String(s.season+1).slice(2)}` : '—'}</span></td>
-        <td>${s.apps || 0}</td>
-        <td>${s.goals || 0}</td>
-        <td class="num-muted">${s.assists || 0}</td>
-        <td class="num-muted">${s.mins ? s.mins.toLocaleString() : '—'}</td>
+    // Group seasons by year, each year has league + competition rows
+    const byYear = {};
+    for (const s of club.seasons) {
+      const yr = s.season || 'Unknown';
+      if (!byYear[yr]) byYear[yr] = [];
+      byYear[yr].push(s);
+    }
+    const years = Object.keys(byYear).sort();
+
+    for (const yr of years) {
+      const rows = byYear[yr];
+      // Total across all competition types for this season
+      const totalApps    = rows.reduce((s,r) => s + (r.apps||0), 0);
+      const totalGoals   = rows.reduce((s,r) => s + (r.goals||0), 0);
+      const totalAssists = rows.reduce((s,r) => s + (r.assists||0), 0);
+      const totalMins    = rows.reduce((s,r) => s + (r.mins||0), 0);
+      const hasBreakdown = rows.length > 1;
+      const uid = `${club.clubId}-${yr}`;
+
+      // Summary row (always shown)
+      html += `<tr class="season-summary-row" ${hasBreakdown ? `onclick="toggleBreakdown('${uid}')" style="cursor:pointer"` : ''}>
+        <td><div class="club-cell">
+          ${club.clubLogo ? `<img class="club-logo" src="${esc(club.clubLogo)}" onerror="this.style.display='none'" />` : `<div class="club-logo-ph"></div>`}
+          <span class="club-name-text">${esc(club.clubName)}</span>
+        </div></td>
+        <td><span class="season-tag">${yr ? `${yr}/${String(Number(yr)+1).slice(2)}` : '—'}</span>${hasBreakdown ? ` <span class="caret" id="caret-${uid}">›</span>` : ''}</td>
+        <td>${totalApps}</td>
+        <td>${totalGoals}</td>
+        <td class="num-muted">${totalAssists}</td>
+        <td class="num-muted">${totalMins ? totalMins.toLocaleString() : '—'}</td>
       </tr>`;
+
+      // Breakdown rows (hidden by default, one per competition type)
+      if (hasBreakdown) {
+        for (const r of rows) {
+          html += `<tr class="breakdown-row" id="breakdown-${uid}" style="display:none">
+            <td style="padding-left:32px;font-size:12px;color:var(--ink-mute)">${esc(r.league || '—')}</td>
+            <td><span class="comp-badge comp-${(r.competitionType||'other').toLowerCase().replace(/\s+/g,'-')}">${esc(r.competitionType||'Other')}</span></td>
+            <td style="color:var(--ink-mute);font-size:13px">${r.apps||0}</td>
+            <td style="color:var(--ink-mute);font-size:13px">${r.goals||0}</td>
+            <td style="color:var(--ink-mute);font-size:13px">${r.assists||0}</td>
+            <td style="color:var(--ink-mute);font-size:13px">${r.mins ? r.mins.toLocaleString() : '—'}</td>
+          </tr>`;
+        }
+      }
     }
   }
 
   html += `</tbody></table></div>`;
   document.getElementById('detailContent').innerHTML = html;
+}
+
+function toggleBreakdown(uid) {
+  const rows = document.querySelectorAll(`#breakdown-${uid}`);
+  const caret = document.getElementById(`caret-${uid}`);
+  const isOpen = rows[0] && rows[0].style.display !== 'none';
+  rows.forEach(r => r.style.display = isOpen ? 'none' : 'table-row');
+  if (caret) caret.textContent = isOpen ? '›' : '⌄';
 }
 
 // ── Game screen ─────────────────────────────────────────────────────
