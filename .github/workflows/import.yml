@@ -21,7 +21,7 @@ on:
 jobs:
   import:
     runs-on: ubuntu-latest
-    timeout-minutes: 340  # just under GitHub's 6hr limit
+    timeout-minutes: 360  # just under GitHub's 6hr limit
 
     steps:
       - name: Checkout repo
@@ -40,7 +40,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           API_KEY: ${{ secrets.API_KEY }}
-          DAILY_BUDGET: 700000
+          DAILY_BUDGET: 72000
           API_DELAY_MS: 500
           JOB: ${{ github.event.inputs.job || 'auto' }}
         run: node importer.js
