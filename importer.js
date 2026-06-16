@@ -26,7 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG = {
   API_KEY:      process.env.API_KEY      || '',
   DATABASE_URL: process.env.DATABASE_URL || '',
-  DAILY_BUDGET: parseInt(process.env.DAILY_BUDGET || '700000', 10),
+  DAILY_BUDGET: parseInt(process.env.DAILY_BUDGET || '72000', 10),
   DELAY_MS:     parseInt(process.env.API_DELAY_MS  || '500',    10),
   CAREER_BATCH: 5,   // seasons fetched in parallel per player (phase2)
 };
