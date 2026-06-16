@@ -921,11 +921,6 @@ function toggleBreakdown(uid) {
   if (caret) {
     caret.style.transform = isOpen ? '' : 'rotate(180deg)';
   }
-}`);
-  const caret = document.getElementById(`caret-${uid}`);
-  const isOpen = rows[0] && rows[0].style.display !== 'none';
-  rows.forEach(r => r.style.display = isOpen ? 'none' : 'table-row');
-  if (caret) caret.textContent = isOpen ? '›' : '⌄';
 }
 
 // ── Game screen ─────────────────────────────────────────────────────
