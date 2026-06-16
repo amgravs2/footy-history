@@ -183,32 +183,13 @@
 </head>
 <body>
 
-<!-- Config Modal -->
-<div class="modal-backdrop" id="configModal">
-  <div class="modal">
-    <h2>Configuration</h2>
-    <p class="modal-desc">API-Football is only needed as a fallback for players not yet in the database. The app primarily searches Neon.</p>
-
-    <div class="modal-field">
-      <label>API-Football key (RapidAPI) — optional fallback</label>
-      <input type="password" id="cfgApiKey" placeholder="your-rapidapi-key" />
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeConfig()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveConfig()">Save</button>
-    </div>
-  </div>
-</div>
-
 <!-- Header -->
 <header class="header">
   <div class="header-brand" onclick="goSearch()">
     <div class="header-logo">⚽</div>
     <div class="header-title">Cluck History</div>
   </div>
-  <div class="header-right">
-    <button class="hbtn" onclick="openConfig()">⚙ Config</button>
-  </div>
+
 </header>
 
 <!-- SEARCH PAGE -->
@@ -307,23 +288,7 @@
 
 <script>
 // ── Config ──────────────────────────────────────────────────────────
-// All DB queries go through our own server — no credentials in the browser
-
-let cfg = {
-  apiKey: localStorage.getItem('ch_apikey') || '',
-};
-
-function openConfig() {
-  document.getElementById('cfgApiKey').value = cfg.apiKey;
-  document.getElementById('configModal').classList.add('open');
-}
-function closeConfig() { document.getElementById('configModal').classList.remove('open'); }
-function saveConfig() {
-  cfg.apiKey = document.getElementById('cfgApiKey').value.trim();
-  localStorage.setItem('ch_apikey', cfg.apiKey);
-  closeConfig();
-  loadDbStatus();
-}
+// API key no longer needed — all data served from Neon via server.js
 
 // ── Navigation ──────────────────────────────────────────────────────
 let currentPlayer  = null;
@@ -416,11 +381,25 @@ function debounceSearch() {
   debounceTimer = setTimeout(doSearch, 350);
 }
 
+// Leagues that are competitions, not clubs — excluded from club counts
+const COMPETITION_LEAGUES = [
+  'UEFA Champions League', 'UEFA Europa League', 'UEFA Europa Conference League',
+  'UEFA Nations League', 'UEFA Youth League',
+  'UEFA U17 Championship', 'UEFA U17 Championship - Qualification',
+  'UEFA U19 Championship', 'UEFA U19 Championship - Qualification',
+  'UEFA U21 Championship', 'UEFA U21 Championship - Qualification',
+  'World Cup - Qualification Europe', 'World Cup - Qualification South America',
+  'World Cup - U17', 'Friendlies', 'Leagues Cup',
+  'Premier League International Cup', 'Sudamericano U20',
+];
+// SQL fragment to exclude competition leagues
+const EXCL_LEAGUES = COMPETITION_LEAGUES.map(l => `'${l.replace("'","''")}'`).join(',');
+
 async function doSearch() {
-  const q          = document.getElementById('searchInput').value.trim();
-  const league     = document.getElementById('filterLeague').value;
-  const position   = document.getElementById('filterPosition').value;
-  const minClubs   = parseInt(document.getElementById('filterMinClubs').value) || 0;
+  const q           = document.getElementById('searchInput').value.trim();
+  const league      = document.getElementById('filterLeague').value;
+  const position    = document.getElementById('filterPosition').value;
+  const minClubs    = parseInt(document.getElementById('filterMinClubs').value) || 0;
   const nationality = document.getElementById('filterNationality').value;
 
   if (!q && !league && !position && !minClubs && !nationality) {
@@ -431,64 +410,51 @@ async function doSearch() {
   setResults(`<div class="state-box"><div class="spinner"></div><p>Searching…</p></div>`);
 
   try {
-    // Build query against Neon
     let conditions = [];
     let params = [];
     let i = 1;
 
-    if (q) {
-      conditions.push(`p.name ILIKE $${i++}`);
-      params.push(`%${q}%`);
-    }
-    if (position) {
-      conditions.push(`p.position = $${i++}`);
-      params.push(position);
-    }
-    if (nationality) {
-      conditions.push(`p.nationality = $${i++}`);
-      params.push(nationality);
-    }
+    if (q) { conditions.push(`p.name ILIKE $${i++}`); params.push(`%${q}%`); }
+    if (position) { conditions.push(`p.position = $${i++}`); params.push(position); }
+    if (nationality) { conditions.push(`p.nationality = $${i++}`); params.push(nationality); }
 
-    let sql = `
+    // Unique club count excludes competition leagues and deduplicates across seasons
+    const leagueJoinClause = league
+      ? `AND s.league_name ILIKE $${i++}`
+      : '';
+    if (league) params.push(`%${league}%`);
+
+    const sql = `
       SELECT
-        p.id, p.api_id, p.name, p.nationality, p.position, p.photo_url, p.career_fetched,
-        COUNT(DISTINCT s.club_id) AS club_count,
-        SUM(s.appearances) AS total_apps
+        p.id, p.name, p.nationality, p.position, p.photo_url,
+        COUNT(DISTINCT CASE WHEN s.league_name NOT IN (${EXCL_LEAGUES}) THEN s.club_id END) AS club_count
       FROM players p
-      LEFT JOIN player_club_stints s ON s.player_id = p.id
-        ${league ? `AND s.league_name ILIKE $${i++}` : ''}
+      LEFT JOIN player_club_stints s ON s.player_id = p.id ${leagueJoinClause}
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
-      ${minClubs > 0 ? `HAVING COUNT(DISTINCT s.club_id) >= ${minClubs}` : ''}
-      ORDER BY COUNT(DISTINCT s.club_id) DESC, p.name
+      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN s.league_name NOT IN (${EXCL_LEAGUES}) THEN s.club_id END) >= ${minClubs}` : ''}
+      ORDER BY club_count DESC, p.name
       LIMIT 80
     `;
-
-    if (league) params.splice(i - 2, 0, `%${league}%`);
 
     const data = await neonSQL(sql, params);
     const players = data.rows || [];
 
     if (!players.length) {
-      // Fallback to live API if DB is empty or player truly not found
-      if (cfg.apiKey && q) {
-        setResults(`<div class="state-box"><div class="state-icon">🔍</div><p>Not in database — trying live API…</p></div>`);
-        await doApiSearch(q);
-        return;
-      }
-      setResults(`<div class="state-box"><div class="state-icon">🤷</div><p>No players found</p><div class="state-sub">Try a broader search, or run the importer to add more players.</div></div>`);
+      setResults(`<div class="state-box"><div class="state-icon">🤷</div><p>No players found</p><div class="state-sub">Try a broader search or different filters.</div></div>`);
       return;
     }
 
     let html = `<div class="results-meta"><span>${players.length} player${players.length !== 1 ? 's' : ''} found</span></div><div class="results-grid">`;
     for (const p of players) {
-      const clubs = p.club_count || 0;
+      const clubs = parseInt(p.club_count) || 0;
+      const meta = [p.position, p.nationality].filter(Boolean).join(' · ');
       html += `
         <div class="player-card" onclick="loadPlayerFromDb(${p.id})">
           <div class="player-photo">${p.photo_url ? `<img src="${esc(p.photo_url)}" onerror="this.parentElement.textContent='⚽'" />` : '⚽'}</div>
           <div class="player-info">
             <div class="player-name">${esc(p.name)}</div>
-            <div class="player-meta">${esc(p.position || '—')} · ${esc(p.nationality || '—')}</div>
+            ${meta ? `<div class="player-meta">${esc(meta)}</div>` : ''}
           </div>
           <div class="clubs-badge">${clubs} club${clubs !== 1 ? 's' : ''}</div>
         </div>`;
@@ -497,49 +463,11 @@ async function doSearch() {
     setResults(html);
 
   } catch(e) {
-    // DB error — fall back to API if key present
-    if (cfg.apiKey && q) {
-      setResults(`<div class="state-box"><div class="state-icon">🔍</div><p>DB unavailable — trying live API…</p></div>`);
-      await doApiSearch(q);
-    } else {
-      setResults(`<div class="state-box"><div class="state-icon">⚠️</div><p>Search failed: ${esc(e.message)}</p></div>`);
-    }
+    setResults(`<div class="state-box"><div class="state-icon">⚠️</div><p>Search failed: ${esc(e.message)}</p></div>`);
   }
 }
 
-// ── API fallback search ─────────────────────────────────────────────
-async function doApiSearch(q) {
-  try {
-    const res = await fetch(`https://v3.football.api-sports.io/players?search=${encodeURIComponent(q)}&season=2024`, {
-      headers: { 'x-rapidapi-key': cfg.apiKey, 'x-rapidapi-host': 'v3.football.api-sports.io' }
-    });
-    const data = await res.json();
-    const players = data.response || [];
-    if (!players.length) {
-      setResults(`<div class="state-box"><div class="state-icon">🤷</div><p>No results found for "${esc(q)}"</p></div>`);
-      return;
-    }
-    let html = `<div class="results-meta"><span>${players.length} from live API (not yet in database)</span></div><div class="results-grid">`;
-    for (const entry of players) {
-      const p = entry.player;
-      const st = entry.statistics[0] || {};
-      html += `
-        <div class="player-card" onclick="loadPlayerFromApi(${p.id})">
-          <div class="player-photo">${p.photo ? `<img src="${esc(p.photo)}" onerror="this.parentElement.textContent='⚽'" />` : '⚽'}</div>
-          <div class="player-info">
-            <div class="player-name">${esc(p.name)}</div>
-            <div class="player-meta">${esc(p.position || '—')} · ${esc(p.nationality || '—')}</div>
-            <div class="player-meta">${esc(st.team?.name || '')}</div>
-          </div>
-          <div class="clubs-badge" style="background:#fff8e1;color:#6d4c00">API</div>
-        </div>`;
-    }
-    html += '</div>';
-    setResults(html);
-  } catch(e) {
-    setResults(`<div class="state-box"><div class="state-icon">⚠️</div><p>API search failed: ${esc(e.message)}</p></div>`);
-  }
-}
+
 
 function setResults(html) { document.getElementById('resultsArea').innerHTML = html; }
 
@@ -559,7 +487,7 @@ async function loadPlayerFromDb(playerId) {
       FROM players p
       JOIN player_club_stints s ON s.player_id = p.id
       JOIN clubs c ON c.id = s.club_id
-      WHERE p.id = $1 AND s.appearances > 0
+      WHERE p.id = $1 AND s.appearances > 0 AND s.league_name NOT IN ('UEFA Champions League','UEFA Europa League','UEFA Europa Conference League','UEFA Nations League','UEFA Youth League','UEFA U17 Championship','UEFA U17 Championship - Qualification','UEFA U19 Championship','UEFA U19 Championship - Qualification','UEFA U21 Championship','UEFA U21 Championship - Qualification','World Cup - Qualification Europe','World Cup - Qualification South America','World Cup - U17','Friendlies','Leagues Cup','Premier League International Cup','Sudamericano U20')
       ORDER BY s.season_year, c.name
     `, [playerId]);
 
@@ -817,7 +745,7 @@ function esc(str) {
 
 // ── Init ────────────────────────────────────────────────────────────
 loadDbStatus();
-if (!cfg.apiKey) setTimeout(openConfig, 400);
+
 </script>
 </body>
 </html>
