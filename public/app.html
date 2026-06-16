@@ -180,15 +180,27 @@
 
   .notice { background: #fff8e1; border: 1px solid #ffe082; border-radius: var(--radius); padding: 10px 14px; font-size: 13px; color: #6d4c00; margin-bottom: 16px; }
 
-  .season-summary-row:hover td { background: var(--surface); }
-  .caret { font-size: 14px; color: var(--ink-mute); margin-left: 4px; display: inline-block; transition: transform 0.15s; }
-  .breakdown-row td { background: #fafafa; }
-  .comp-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
+  /* Season summary rows */
+  .season-summary-row.has-breakdown { cursor: pointer; }
+  .season-summary-row.has-breakdown:hover td { background: var(--green-light); }
+  .season-summary-row:not(.has-breakdown):hover td { background: var(--surface); }
+  .season-cell { display: flex; align-items: center; gap: 6px; }
+  .caret-icon { display: inline-flex; align-items: center; color: var(--ink-mute); transition: transform 0.2s ease; flex-shrink: 0; }
+
+  /* Breakdown rows */
+  .breakdown-row td { background: #f9fafb; border-bottom: 1px solid #f0f0ee; }
+  .breakdown-row:last-of-type td { border-bottom: 1px solid var(--line); }
+  .breakdown-indent { padding-left: 8px !important; }
+  .breakdown-league { font-size: 12px; color: var(--ink-mute); margin-left: 6px; }
+  .breakdown-num { color: var(--ink-mute) !important; font-size: 13px !important; }
+
+  /* Competition type badges */
+  .comp-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0; }
   .comp-badge.comp-league { background: var(--green-light); color: var(--green); }
-  .comp-badge.comp-domestic-cup { background: #fff3e0; color: #e65100; }
-  .comp-badge.comp-continental-competition { background: #e3f2fd; color: #1565c0; }
+  .comp-badge.comp-domestic-cup { background: #fff3e0; color: #c84b00; }
+  .comp-badge.comp-continental-competition { background: #e3f2fd; color: #1255a0; }
   .comp-badge.comp-international { background: #f3e5f5; color: #6a1b9a; }
-  .comp-badge.comp-youth { background: #e8f5e9; color: #2e7d32; }
+  .comp-badge.comp-youth { background: #e8f5e9; color: #1b5e20; }
   .comp-badge.comp-other { background: var(--surface); color: var(--ink-mute); }
 </style>
 </head>
@@ -419,18 +431,24 @@ async function doSearch() {
     if (position) { conditions.push(`p.position = $${i++}`); params.push(position); }
     if (nationality) { conditions.push(`p.nationality = $${i++}`); params.push(nationality); }
 
-    // Unique club count excludes competition leagues and deduplicates across seasons
-    const leagueJoinClause = league
-      ? `AND s.league_name ILIKE $${i++}`
-      : '';
-    if (league) params.push(`%${league}%`);
+    // If a league filter is active, restrict which players appear via a subquery
+    // but always count clubs across ALL leagues so the badge shows total career clubs
+    if (league) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM player_club_stints ls
+        WHERE ls.player_id = p.id
+          AND ls.appearances > 0
+          AND ls.league_name ILIKE $${i++}
+      )`);
+      params.push(`%${league}%`);
+    }
 
     const sql = `
       SELECT
         p.id, p.name, p.nationality, p.position, p.photo_url,
         COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) AS club_count
       FROM players p
-      LEFT JOIN player_club_stints s ON s.player_id = p.id AND s.appearances > 0 ${leagueJoinClause}
+      LEFT JOIN player_club_stints s ON s.player_id = p.id AND s.appearances > 0
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
@@ -617,53 +635,86 @@ function renderDetail(player, clubs) {
     <div class="section-title">Career by season</div>
     <div class="career-table-wrap">
       <table class="career-table">
-        <thead><tr><th>Club</th><th>Season</th><th>Apps</th><th>Goals</th><th>Ast</th><th>Mins</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Club</th>
+            <th>Season</th>
+            <th>Apps</th>
+            <th>Goals</th>
+            <th>Ast</th>
+            <th>Mins</th>
+          </tr>
+        </thead>
         <tbody>`;
 
   for (const club of clubs) {
-    // Group seasons by year, each year has league + competition rows
+    // Group this club's stints by season year
     const byYear = {};
     for (const s of club.seasons) {
       const yr = s.season || 'Unknown';
       if (!byYear[yr]) byYear[yr] = [];
       byYear[yr].push(s);
     }
-    const years = Object.keys(byYear).sort();
+    const years = Object.keys(byYear).sort((a,b) => Number(a) - Number(b));
 
     for (const yr of years) {
       const rows = byYear[yr];
-      // Total across all competition types for this season
-      const totalApps    = rows.reduce((s,r) => s + (r.apps||0), 0);
-      const totalGoals   = rows.reduce((s,r) => s + (r.goals||0), 0);
-      const totalAssists = rows.reduce((s,r) => s + (r.assists||0), 0);
-      const totalMins    = rows.reduce((s,r) => s + (r.mins||0), 0);
+
+      // Totals across all competition types for this season
+      const sumApps    = rows.reduce((s,r) => s + (r.apps||0), 0);
+      const sumGoals   = rows.reduce((s,r) => s + (r.goals||0), 0);
+      const sumAssists = rows.reduce((s,r) => s + (r.assists||0), 0);
+      const sumMins    = rows.reduce((s,r) => s + (r.mins||0), 0);
+
+      // Only show caret if there are multiple competition rows this season
       const hasBreakdown = rows.length > 1;
-      const uid = `${club.clubId}-${yr}`;
+      const uid = `${club.clubId}_${yr}`;
+      const seasonLabel = yr !== 'Unknown' ? `${yr}/${String(Number(yr)+1).slice(2)}` : '—';
 
-      // Summary row (always shown)
-      html += `<tr class="season-summary-row" ${hasBreakdown ? `onclick="toggleBreakdown('${uid}')" style="cursor:pointer"` : ''}>
-        <td><div class="club-cell">
-          ${club.clubLogo ? `<img class="club-logo" src="${esc(club.clubLogo)}" onerror="this.style.display='none'" />` : `<div class="club-logo-ph"></div>`}
-          <span class="club-name-text">${esc(club.clubName)}</span>
-        </div></td>
-        <td><span class="season-tag">${yr ? `${yr}/${String(Number(yr)+1).slice(2)}` : '—'}</span>${hasBreakdown ? ` <span class="caret" id="caret-${uid}">›</span>` : ''}</td>
-        <td>${totalApps}</td>
-        <td>${totalGoals}</td>
-        <td class="num-muted">${totalAssists}</td>
-        <td class="num-muted">${totalMins ? totalMins.toLocaleString() : '—'}</td>
-      </tr>`;
+      // Summary row
+      html += `
+        <tr class="season-summary-row${hasBreakdown ? ' has-breakdown' : ''}"
+          ${hasBreakdown ? `onclick="toggleBreakdown('${uid}')"` : ''}>
+          <td>
+            <div class="club-cell">
+              ${club.clubLogo
+                ? `<img class="club-logo" src="${esc(club.clubLogo)}" onerror="this.style.display='none'" />`
+                : `<div class="club-logo-ph"></div>`}
+              <span class="club-name-text">${esc(club.clubName)}</span>
+            </div>
+          </td>
+          <td>
+            <div class="season-cell">
+              <span class="season-tag">${seasonLabel}</span>
+              ${hasBreakdown ? `<span class="caret-icon" id="caret-${uid}">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 4l4 4 4-4"/></svg>
+              </span>` : ''}
+            </div>
+          </td>
+          <td>${sumApps}</td>
+          <td>${sumGoals}</td>
+          <td class="num-muted">${sumAssists}</td>
+          <td class="num-muted">${sumMins ? sumMins.toLocaleString() : '—'}</td>
+        </tr>`;
 
-      // Breakdown rows (hidden by default, one per competition type)
+      // Breakdown rows — one per competition, hidden by default
       if (hasBreakdown) {
         for (const r of rows) {
-          html += `<tr class="breakdown-row" id="breakdown-${uid}" style="display:none">
-            <td style="padding-left:32px;font-size:12px;color:var(--ink-mute)">${esc(r.league || '—')}</td>
-            <td><span class="comp-badge comp-${(r.competitionType||'other').toLowerCase().replace(/\s+/g,'-')}">${esc(r.competitionType||'Other')}</span></td>
-            <td style="color:var(--ink-mute);font-size:13px">${r.apps||0}</td>
-            <td style="color:var(--ink-mute);font-size:13px">${r.goals||0}</td>
-            <td style="color:var(--ink-mute);font-size:13px">${r.assists||0}</td>
-            <td style="color:var(--ink-mute);font-size:13px">${r.mins ? r.mins.toLocaleString() : '—'}</td>
-          </tr>`;
+          const typeSlug = (r.competitionType || 'other').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z-]/g, '');
+          html += `
+            <tr class="breakdown-row" data-uid="${uid}" style="display:none">
+              <td class="breakdown-indent">
+                <div class="club-cell" style="padding-left:20px">
+                  <span class="comp-badge comp-${typeSlug}">${esc(r.competitionType || 'Other')}</span>
+                  <span class="breakdown-league">${esc(r.league || '—')}</span>
+                </div>
+              </td>
+              <td></td>
+              <td class="breakdown-num">${r.apps || 0}</td>
+              <td class="breakdown-num">${r.goals || 0}</td>
+              <td class="breakdown-num">${r.assists || 0}</td>
+              <td class="breakdown-num">${r.mins ? r.mins.toLocaleString() : '—'}</td>
+            </tr>`;
         }
       }
     }
@@ -674,7 +725,16 @@ function renderDetail(player, clubs) {
 }
 
 function toggleBreakdown(uid) {
-  const rows = document.querySelectorAll(`#breakdown-${uid}`);
+  const rows = document.querySelectorAll(`tr.breakdown-row[data-uid="${uid}"]`);
+  const caret = document.getElementById(`caret-${uid}`);
+  const isOpen = rows.length > 0 && rows[0].style.display !== 'none';
+
+  rows.forEach(r => { r.style.display = isOpen ? 'none' : 'table-row'; });
+
+  if (caret) {
+    caret.style.transform = isOpen ? '' : 'rotate(180deg)';
+  }
+}`);
   const caret = document.getElementById(`caret-${uid}`);
   const isOpen = rows[0] && rows[0].style.display !== 'none';
   rows.forEach(r => r.style.display = isOpen ? 'none' : 'table-row');
