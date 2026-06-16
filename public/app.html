@@ -381,15 +381,12 @@
               <span class="league-check-label">All leagues</span>
             </label>
             <div class="league-divider"></div>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Premier League" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Premier League</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="La Liga" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">La Liga</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Bundesliga" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Bundesliga</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Serie A" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Serie A</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Ligue 1" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Ligue 1</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Primeira Liga" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Primeira Liga</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Eredivisie" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Eredivisie</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Jupiler Pro League" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Belgian Pro League</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Süper Lig" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Süper Lig</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Premier League|England" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Premier League</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="La Liga|Spain" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">La Liga</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Bundesliga|Germany" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Bundesliga</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Serie A|Italy" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Serie A</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Ligue 1|France" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Ligue 1</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Major League Soccer|USA" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">MLS</span></label>
           </div>
         </div>
 
@@ -418,9 +415,8 @@
       <div class="results-wrap">
         <div id="resultsArea">
           <div class="state-box">
-            <div class="state-icon">⚽</div>
-            <p>Search for a player to get started</p>
-            <div class="state-sub">Results come from your Neon database</div>
+            <div class="spinner"></div>
+            <p>Loading players…</p>
           </div>
         </div>
       </div>
@@ -558,7 +554,10 @@ function debounceSearch() {
 
 function getSelectedLeagues() {
   const checked = document.querySelectorAll('.league-cb:checked');
-  return Array.from(checked).map(cb => cb.value);
+  return Array.from(checked).map(cb => {
+    const [name, country] = cb.value.split('|');
+    return { name, country };
+  });
 }
 
 function toggleAllLeagues(allBox) {
@@ -601,10 +600,7 @@ async function doSearch() {
   const nationality = document.getElementById('filterNationality').value;
   const leagues     = getSelectedLeagues(); // array of league names, empty = all
 
-  if (!q && !position && !minClubs && !nationality && leagues.length === 0) {
-    document.getElementById('resultsArea').innerHTML = `<div class="state-box"><div class="state-icon">⚽</div><p>Search for a player to get started</p><div class="state-sub">Results come from your Neon database</div></div>`;
-    return;
-  }
+  // No early return — show default results when no filters applied
 
   setResults(`<div class="state-box"><div class="spinner"></div><p>Searching…</p></div>`);
 
@@ -620,14 +616,17 @@ async function doSearch() {
     // League filter: player must have appeared in ANY of the selected leagues
     // Club count is always total career clubs regardless of filter
     if (leagues.length > 0) {
-      const placeholders = leagues.map(() => `$${i++}`).join(', ');
+      const leagueConditions = leagues.map(l => {
+        const ni = i++; const ci = i++;
+        params.push(l.name); params.push(l.country);
+        return `(ls.league_name = $${ni} AND ls.league_country = $${ci})`;
+      });
       conditions.push(`EXISTS (
         SELECT 1 FROM player_club_stints ls
         WHERE ls.player_id = p.id
           AND ls.appearances > 0
-          AND ls.league_name IN (${placeholders})
+          AND (${leagueConditions.join(' OR ')})
       )`);
-      leagues.forEach(l => params.push(l));
     }
 
     const sql = `
@@ -639,7 +638,7 @@ async function doSearch() {
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
-      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) >= ${minClubs}` : ''}
+      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) >= ${minClubs}` : 'HAVING COUNT(DISTINCT CASE WHEN ' + IS_LEAGUE + ' THEN s.club_id END) > 0'}
       ORDER BY club_count DESC, p.name
       LIMIT 80
     `;
