@@ -430,7 +430,7 @@ async function doSearch() {
         p.id, p.name, p.nationality, p.position, p.photo_url,
         COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) AS club_count
       FROM players p
-      LEFT JOIN player_club_stints s ON s.player_id = p.id ${leagueJoinClause}
+      LEFT JOIN player_club_stints s ON s.player_id = p.id AND s.appearances > 0 ${leagueJoinClause}
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
