@@ -44,12 +44,12 @@
   .btn-ghost { background: transparent; border-color: var(--line); color: var(--ink-mid); }
 
   /* Search page */
-  .search-wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px 60px; }
-  .search-hero { margin-bottom: 22px; }
+  .search-wrap { max-width: 1200px; margin: 0 auto; padding: 28px 24px 60px; }
+  .search-hero { margin-bottom: 20px; }
   .search-hero h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.4px; }
   .search-hero p { color: var(--ink-mute); font-size: 14px; margin-top: 3px; }
 
-  .search-bar-row { display: flex; gap: 10px; margin-bottom: 14px; }
+  .search-bar-row { display: flex; gap: 10px; margin-bottom: 20px; }
   .search-input-wrap { position: relative; flex: 1; }
   .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--ink-mute); pointer-events: none; width: 16px; height: 16px; }
   .search-input { width: 100%; padding: 10px 12px 10px 36px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 15px; background: var(--white); box-shadow: var(--shadow); }
@@ -58,17 +58,134 @@
   .search-btn:hover { background: var(--green-mid); }
   .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* Filters */
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; align-items: center; }
-  .filter-label { font-size: 12px; color: var(--ink-mute); }
-  .filter-select { padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; background: var(--white); color: var(--ink); cursor: pointer; }
-  .filter-select:focus { outline: none; border-color: var(--green); }
-  .filter-chip { padding: 5px 12px; border: 1px solid var(--line); border-radius: 20px; font-size: 13px; background: var(--white); cursor: pointer; color: var(--ink-mid); }
-  .filter-chip.active { background: var(--green-light); border-color: var(--green); color: var(--green); font-weight: 500; }
+  /* Search body: sidebar + results */
+  .search-body { display: flex; gap: 20px; align-items: flex-start; }
 
-  /* Results */
+  /* Filter sidebar */
+  .filter-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 18px 16px;
+    box-shadow: var(--shadow);
+    position: sticky;
+    top: 72px;
+  }
+  .filter-sidebar-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--ink-mute);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .filter-clear-btn {
+    font-size: 11px;
+    color: var(--green);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .filter-clear-btn:hover { text-decoration: underline; }
+
+  .filter-section { margin-bottom: 20px; }
+  .filter-section:last-child { margin-bottom: 0; }
+  .filter-section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ink-mute);
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  /* Position dropdown */
+  .filter-select {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 13px;
+    background: var(--white);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .filter-select:focus { outline: none; border-color: var(--green); }
+
+  /* League checkboxes */
+  .league-check-list { display: flex; flex-direction: column; gap: 6px; }
+  .league-check-item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .league-check-item input[type="checkbox"] { display: none; }
+  .league-check-box {
+    width: 16px; height: 16px;
+    border: 2px solid var(--line);
+    border-radius: 4px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--white);
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .league-check-item input:checked + .league-check-box {
+    background: var(--green);
+    border-color: var(--green);
+  }
+  .league-check-item input:checked + .league-check-box::after {
+    content: '';
+    width: 8px; height: 5px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) translate(1px, -1px);
+    display: block;
+  }
+  .league-check-label { font-size: 13px; color: var(--ink); user-select: none; }
+  .league-check-all .league-check-label { font-weight: 600; color: var(--ink); }
+  .league-divider { height: 1px; background: var(--line); margin: 6px 0; }
+
+  /* Club count slider */
+  .slider-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .slider-value { font-size: 13px; font-weight: 600; color: var(--green); }
+  .slider-range-label { font-size: 11px; color: var(--ink-mute); }
+  .range-slider {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    outline: none;
+    margin-bottom: 4px;
+  }
+  .range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--green);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .range-slider::-moz-range-thumb {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--green);
+    cursor: pointer;
+    border: none;
+  }
+  .slider-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-mute); }
+
+  /* Results area */
+  .results-wrap { flex: 1; min-width: 0; }
   .results-meta { font-size: 13px; color: var(--ink-mute); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
-  .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; }
+  .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 
   .player-card { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; cursor: pointer; display: flex; align-items: center; gap: 14px; transition: box-shadow 0.15s, border-color 0.15s; }
   .player-card:hover { box-shadow: var(--shadow-md); border-color: #ccc; }
@@ -220,7 +337,7 @@
   <div class="search-wrap">
     <div class="search-hero">
       <h1>Find a player</h1>
-      <p>Searching your local database — no API calls needed once the importer has run.</p>
+      <p>Searching your local database — no API calls needed.</p>
     </div>
 
     <div id="dbStatusBar"></div>
@@ -233,46 +350,81 @@
       <button class="search-btn" id="searchBtn" onclick="doSearch()">Search</button>
     </div>
 
-    <div class="filters">
-      <span class="filter-label">League:</span>
-      <select class="filter-select" id="filterLeague" onchange="doSearch()">
-        <option value="">All leagues</option>
-        <option value="Premier League">Premier League</option>
-        <option value="La Liga">La Liga</option>
-        <option value="Bundesliga">Bundesliga</option>
-        <option value="Serie A">Serie A</option>
-        <option value="Ligue 1">Ligue 1</option>
-        <option value="Champions League">Champions League</option>
-        <option value="Europa League">Europa League</option>
-        <option value="Primeira Liga">Primeira Liga</option>
-        <option value="Eredivisie">Eredivisie</option>
-      </select>
-      <select class="filter-select" id="filterPosition" onchange="doSearch()">
-        <option value="">All positions</option>
-        <option value="Goalkeeper">Goalkeeper</option>
-        <option value="Defender">Defender</option>
-        <option value="Midfielder">Midfielder</option>
-        <option value="Attacker">Attacker</option>
-      </select>
-      <select class="filter-select" id="filterMinClubs" onchange="doSearch()">
-        <option value="0">Any club count</option>
-        <option value="5">5+ clubs</option>
-        <option value="8">8+ clubs</option>
-        <option value="10">10+ clubs</option>
-        <option value="12">12+ clubs</option>
-        <option value="15">15+ clubs</option>
-      </select>
-      <select class="filter-select" id="filterNationality" onchange="doSearch()">
-        <option value="">Any nationality</option>
-      </select>
-    </div>
+    <div class="search-body">
 
-    <div id="resultsArea">
-      <div class="state-box">
-        <div class="state-icon">⚽</div>
-        <p>Search for a player to get started</p>
-        <div class="state-sub">Results come from your Neon database</div>
+      <!-- Filter sidebar -->
+      <aside class="filter-sidebar">
+        <div class="filter-sidebar-title">
+          Filters
+          <button class="filter-clear-btn" onclick="clearFilters()">Clear all</button>
+        </div>
+
+        <!-- Position -->
+        <div class="filter-section">
+          <span class="filter-section-label">Position</span>
+          <select class="filter-select" id="filterPosition" onchange="doSearch()">
+            <option value="">All positions</option>
+            <option value="Goalkeeper">Goalkeeper</option>
+            <option value="Defender">Defender</option>
+            <option value="Midfielder">Midfielder</option>
+            <option value="Attacker">Attacker</option>
+          </select>
+        </div>
+
+        <!-- Leagues -->
+        <div class="filter-section">
+          <span class="filter-section-label">League</span>
+          <div class="league-check-list">
+            <label class="league-check-item league-check-all">
+              <input type="checkbox" id="leagueAll" checked onchange="toggleAllLeagues(this)" />
+              <span class="league-check-box"></span>
+              <span class="league-check-label">All leagues</span>
+            </label>
+            <div class="league-divider"></div>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Premier League" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Premier League</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="La Liga" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">La Liga</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Bundesliga" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Bundesliga</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Serie A" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Serie A</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Ligue 1" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Ligue 1</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Primeira Liga" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Primeira Liga</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Eredivisie" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Eredivisie</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Jupiler Pro League" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Belgian Pro League</span></label>
+            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Süper Lig" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Süper Lig</span></label>
+          </div>
+        </div>
+
+        <!-- Club count slider -->
+        <div class="filter-section">
+          <span class="filter-section-label">Min. clubs</span>
+          <div class="slider-row">
+            <span class="slider-range-label">At least</span>
+            <span class="slider-value" id="sliderVal">Any</span>
+          </div>
+          <input type="range" class="range-slider" id="filterMinClubs" min="0" max="20" value="0" step="1" oninput="sliderChanged(this)" />
+          <div class="slider-labels"><span>0</span><span>5</span><span>10</span><span>15</span><span>20+</span></div>
+        </div>
+
+        <!-- Nationality -->
+        <div class="filter-section">
+          <span class="filter-section-label">Nationality</span>
+          <select class="filter-select" id="filterNationality" onchange="doSearch()">
+            <option value="">Any nationality</option>
+          </select>
+        </div>
+
+      </aside>
+
+      <!-- Results -->
+      <div class="results-wrap">
+        <div id="resultsArea">
+          <div class="state-box">
+            <div class="state-icon">⚽</div>
+            <p>Search for a player to get started</p>
+            <div class="state-sub">Results come from your Neon database</div>
+          </div>
+        </div>
       </div>
+
     </div>
   </div>
 </div>
@@ -404,18 +556,52 @@ function debounceSearch() {
   debounceTimer = setTimeout(doSearch, 350);
 }
 
+function getSelectedLeagues() {
+  const checked = document.querySelectorAll('.league-cb:checked');
+  return Array.from(checked).map(cb => cb.value);
+}
+
+function toggleAllLeagues(allBox) {
+  const cbs = document.querySelectorAll('.league-cb');
+  cbs.forEach(cb => cb.checked = false);
+  doSearch();
+}
+
+function leagueChanged() {
+  // If any individual league is checked, uncheck "All"
+  const anyChecked = document.querySelectorAll('.league-cb:checked').length > 0;
+  document.getElementById('leagueAll').checked = !anyChecked;
+  doSearch();
+}
+
+function sliderChanged(el) {
+  const val = parseInt(el.value);
+  document.getElementById('sliderVal').textContent = val === 0 ? 'Any' : val + '+';
+  debounceSearch();
+}
+
+function clearFilters() {
+  document.getElementById('filterPosition').value = '';
+  document.getElementById('filterNationality').value = '';
+  document.getElementById('filterMinClubs').value = 0;
+  document.getElementById('sliderVal').textContent = 'Any';
+  document.getElementById('leagueAll').checked = true;
+  document.querySelectorAll('.league-cb').forEach(cb => cb.checked = false);
+  doSearch();
+}
+
 // Competition type check — joins competition_types table
 // 'League' = counts as a club stint; everything else is a competition
 const IS_LEAGUE = `ct.competition_type = 'League'`;
 
 async function doSearch() {
   const q           = document.getElementById('searchInput').value.trim();
-  const league      = document.getElementById('filterLeague').value;
   const position    = document.getElementById('filterPosition').value;
   const minClubs    = parseInt(document.getElementById('filterMinClubs').value) || 0;
   const nationality = document.getElementById('filterNationality').value;
+  const leagues     = getSelectedLeagues(); // array of league names, empty = all
 
-  if (!q && !league && !position && !minClubs && !nationality) {
+  if (!q && !position && !minClubs && !nationality && leagues.length === 0) {
     document.getElementById('resultsArea').innerHTML = `<div class="state-box"><div class="state-icon">⚽</div><p>Search for a player to get started</p><div class="state-sub">Results come from your Neon database</div></div>`;
     return;
   }
@@ -431,16 +617,17 @@ async function doSearch() {
     if (position) { conditions.push(`p.position = $${i++}`); params.push(position); }
     if (nationality) { conditions.push(`p.nationality = $${i++}`); params.push(nationality); }
 
-    // If a league filter is active, restrict which players appear via a subquery
-    // but always count clubs across ALL leagues so the badge shows total career clubs
-    if (league) {
+    // League filter: player must have appeared in ANY of the selected leagues
+    // Club count is always total career clubs regardless of filter
+    if (leagues.length > 0) {
+      const placeholders = leagues.map(() => `$${i++}`).join(', ');
       conditions.push(`EXISTS (
         SELECT 1 FROM player_club_stints ls
         WHERE ls.player_id = p.id
           AND ls.appearances > 0
-          AND ls.league_name ILIKE $${i++}
+          AND ls.league_name IN (${placeholders})
       )`);
-      params.push(`%${league}%`);
+      leagues.forEach(l => params.push(l));
     }
 
     const sql = `
