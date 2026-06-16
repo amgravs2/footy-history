@@ -39,6 +39,11 @@ app.post('/query', async (req, res) => {
   }
 });
 
+// ── Root → app.html ─────────────────────────────────────────────────────────
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
+
 // ── Health check (Render uses this) ──────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
