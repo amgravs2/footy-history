@@ -1,8 +1,11 @@
-require('dotenv').config();
-const express = require('express');
-const { Pool } = require('pg');
-const path = require('path');
+import 'dotenv/config';
+import express from 'express';
+import pg from 'pg';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
+const { Pool } = pg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -25,7 +28,6 @@ app.post('/query', async (req, res) => {
     return res.status(400).json({ error: 'Missing query' });
   }
 
-  // Only allow SELECT — the frontend has no reason to write anything
   if (!query.trim().toUpperCase().startsWith('SELECT')) {
     return res.status(403).json({ error: 'Only SELECT queries are permitted' });
   }
@@ -39,12 +41,12 @@ app.post('/query', async (req, res) => {
   }
 });
 
-// ── Root → app.html ─────────────────────────────────────────────────────────
+// ── Root → app.html ───────────────────────────────────────────────────────────
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
 
-// ── Health check (Render uses this) ──────────────────────────────────────────
+// ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // ── Start ─────────────────────────────────────────────────────────────────────
