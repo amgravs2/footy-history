@@ -513,38 +513,80 @@ async function neonSQL(sql, params = []) {
 }
 
 // ── DB status ───────────────────────────────────────────────────────
+// ── DB status bar — static on load, dynamic after searches ──────────
+let dbConnected = false;
+
 async function loadDbStatus() {
   const bar = document.getElementById('dbStatusBar');
   bar.innerHTML = `<div class="db-status"><div class="spinner" style="width:16px;height:16px;margin:0"></div><span style="font-size:13px;color:var(--ink-mute)">Connecting…</span></div>`;
   try {
     const data = await neonSQL(`
       SELECT
-        (SELECT COUNT(*) FROM players)::int AS players,
-        (SELECT COUNT(*) FROM clubs)::int AS clubs,
-        (SELECT COUNT(*) FROM player_club_stints)::int AS stints,
+        (SELECT COUNT(*) FROM players)::int                              AS players,
+        (SELECT COUNT(*) FROM clubs)::int                               AS clubs,
+        (SELECT COUNT(*) FROM player_club_stints)::int                  AS stints,
         (SELECT COUNT(*) FROM players WHERE career_fetched = true)::int AS career_done
     `);
     const r = data.rows[0];
     if (!r || r.players === 0) {
-      bar.innerHTML = `<div class="notice">⚠ Database is empty — run the importer first (<code>node import.js phase1</code>). The app will fall back to live API search in the meantime.</div>`;
-      populateNationalityFilter([]);
+      bar.innerHTML = `<div class="notice">⚠ Database is empty.</div>`;
       return;
     }
-    bar.innerHTML = `
-      <div class="db-status">
-        <div class="db-status-dot live"></div>
-        <div class="db-stat"><div class="db-stat-num">${Number(r.players).toLocaleString()}</div><div class="db-stat-label">Players</div></div>
-        <div class="db-divider"></div>
-        <div class="db-stat"><div class="db-stat-num">${Number(r.clubs).toLocaleString()}</div><div class="db-stat-label">Clubs</div></div>
-        <div class="db-divider"></div>
-        <div class="db-stat"><div class="db-stat-num">${Number(r.stints).toLocaleString()}</div><div class="db-stat-label">Career stints</div></div>
-        <div class="db-divider"></div>
-        <div class="db-stat"><div class="db-stat-num">${Number(r.career_done).toLocaleString()}</div><div class="db-stat-label">Full careers</div></div>
-      </div>`;
+    dbConnected = true;
+    renderStatusBar(r.players, r.clubs, r.stints, r.career_done, false);
     loadNationalities();
   } catch(e) {
-    bar.innerHTML = `<div class="notice">⚠ Cannot reach database: ${esc(e.message)}. Check your config.</div>`;
+    bar.innerHTML = `<div class="notice">⚠ Cannot reach database: ${esc(e.message)}</div>`;
   }
+}
+
+function renderStatusBar(players, clubs, stints, careerDone, filtered) {
+  const bar = document.getElementById('dbStatusBar');
+  const label = filtered ? 'Matching players' : 'Players';
+  const clubLabel = filtered ? 'Clubs represented' : 'Clubs';
+  const stintLabel = filtered ? 'Career stints' : 'Career stints';
+  bar.innerHTML = `
+    <div class="db-status">
+      <div class="db-status-dot live"></div>
+      <div class="db-stat">
+        <div class="db-stat-num">${Number(players).toLocaleString()}</div>
+        <div class="db-stat-label">${label}</div>
+      </div>
+      <div class="db-divider"></div>
+      <div class="db-stat">
+        <div class="db-stat-num">${Number(clubs).toLocaleString()}</div>
+        <div class="db-stat-label">${clubLabel}</div>
+      </div>
+      <div class="db-divider"></div>
+      <div class="db-stat">
+        <div class="db-stat-num">${Number(stints).toLocaleString()}</div>
+        <div class="db-stat-label">${stintLabel}</div>
+      </div>
+      ${!filtered ? `<div class="db-divider"></div>
+      <div class="db-stat">
+        <div class="db-stat-num">${Number(careerDone).toLocaleString()}</div>
+        <div class="db-stat-label">Full careers</div>
+      </div>` : ''}
+      ${filtered ? `<div style="margin-left:auto;font-size:11px;color:var(--ink-mute);font-style:italic">filtered view</div>` : ''}
+    </div>`;
+}
+
+async function updateStatusBarForFilters(conditions, params) {
+  if (!dbConnected) return;
+  try {
+    const data = await neonSQL(`
+      SELECT
+        COUNT(DISTINCT p.id)::int         AS players,
+        COUNT(DISTINCT s.club_id)::int    AS clubs,
+        COUNT(s.id)::int                  AS stints
+      FROM players p
+      LEFT JOIN player_club_stints s ON s.player_id = p.id AND s.appearances > 0
+      LEFT JOIN competition_types ct ON ct.league_name = s.league_name
+      ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
+    `, params);
+    const r = data.rows[0];
+    renderStatusBar(r.players, r.clubs, r.stints, 0, true);
+  } catch(e) { /* silent — don't break the search */ }
 }
 
 async function loadNationalities() {
@@ -748,6 +790,9 @@ async function doSearch() {
       ORDER BY club_count DESC, p.name
       LIMIT 80
     `;
+
+    // Update status bar stats to reflect current filters
+    updateStatusBarForFilters(conditions, [...params]);
 
     const data = await neonSQL(sql, params);
     const players = data.rows || [];
