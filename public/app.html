@@ -419,9 +419,23 @@
         <!-- Club filter (responds to league selection) -->
         <div class="filter-section">
           <span class="filter-section-label">Club</span>
-          <select class="filter-select" id="filterClub" onchange="doSearch()">
-            <option value="">Any club</option>
-          </select>
+          <div class="multi-select-wrap" id="clubDropdownWrap">
+            <div class="multi-select-trigger" id="clubTrigger" onclick="toggleClubDropdown()">
+              <span id="clubTriggerLabel">Any club</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 4l4 4 4-4"/></svg>
+            </div>
+            <div class="multi-select-menu" id="clubMenu" style="max-height:220px;overflow-y:auto">
+              <label class="multi-select-item all-item" id="clubAllItem" onclick="clearClubSelection()">
+                <span class="ms-check-box" id="clubAllBox" style="background:var(--green);border-color:var(--green)">
+                  <span style="display:block;width:7px;height:4px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></span>
+                </span>
+                <span>Any club</span>
+              </label>
+              <div class="ms-divider"></div>
+              <div id="clubCheckList"></div>
+            </div>
+          </div>
+          <input type="hidden" id="filterClub" value="" />
         </div>
 
         <!-- Total club count presets -->
@@ -663,6 +677,7 @@ function getSelectedLeagues() {
 function toggleAllLeagues(allBox) {
   document.querySelectorAll('.league-cb').forEach(cb => cb.checked = false);
   document.getElementById('filterClub').value = '';
+  document.querySelectorAll('.club-cb').forEach(cb => cb.checked = false);
   updateLeagueTriggerLabel();
   loadClubsForLeagues();
   doSearch();
@@ -672,6 +687,7 @@ function leagueChanged() {
   const anyChecked = document.querySelectorAll('.league-cb:checked').length > 0;
   document.getElementById('leagueAll').checked = !anyChecked;
   document.getElementById('filterClub').value = '';
+  document.querySelectorAll('.club-cb').forEach(cb => cb.checked = false);
   updateLeagueTriggerLabel();
   loadClubsForLeagues();
   doSearch();
@@ -737,27 +753,19 @@ function yearSliderChanged(el) {
 // Load clubs into dropdown based on currently selected leagues
 async function loadClubsForLeagues() {
   const leagues = getSelectedLeagues();
-  const sel = document.getElementById('filterClub');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">Any club</option>';
-
-  if (leagues.length === 0) {
-    // All big 5 + MLS when nothing selected
-    const ALL_LEAGUES = [
-      {name:'Premier League',country:'England'},
-      {name:'La Liga',country:'Spain'},
-      {name:'Bundesliga',country:'Germany'},
-      {name:'Serie A',country:'Italy'},
-      {name:'Ligue 1',country:'France'},
-      {name:'Major League Soccer',country:'USA'},
-    ];
-    await fetchClubs(ALL_LEAGUES, sel, current);
-  } else {
-    await fetchClubs(leagues, sel, current);
-  }
+  const ALL_LEAGUES = [
+    {name:'Premier League',country:'England'},
+    {name:'La Liga',country:'Spain'},
+    {name:'Bundesliga',country:'Germany'},
+    {name:'Serie A',country:'Italy'},
+    {name:'Ligue 1',country:'France'},
+    {name:'Major League Soccer',country:'USA'},
+  ];
+  await fetchClubs(leagues.length === 0 ? ALL_LEAGUES : leagues);
+  updateClubTriggerLabel();
 }
 
-async function fetchClubs(leagues, sel, current) {
+async function fetchClubs(leagues) {
   const conditions = leagues.map((_,idx) =>
     `(s.league_name = $${idx*2+1} AND s.league_country = $${idx*2+2})`
   ).join(' OR ');
@@ -770,14 +778,67 @@ async function fetchClubs(leagues, sel, current) {
       WHERE (${conditions}) AND s.appearances > 0
       ORDER BY c.name
     `, params);
+    const list = document.getElementById('clubCheckList');
+    list.innerHTML = '';
     for (const row of (data.rows || [])) {
-      const opt = document.createElement('option');
-      opt.value = row.id;
-      opt.textContent = row.name;
-      if (String(row.id) === String(current)) opt.selected = true;
-      sel.appendChild(opt);
+      const label = document.createElement('label');
+      label.className = 'multi-select-item';
+      label.innerHTML = `
+        <input type="checkbox" class="club-cb" value="${row.id}" data-name="${row.name.replace(/"/g,'&quot;')}" onchange="clubChanged()" />
+        <span class="ms-check-box"></span>
+        <span>${row.name}</span>`;
+      list.appendChild(label);
     }
   } catch(e) { console.warn('Club load failed:', e.message); }
+}
+
+function toggleClubDropdown() {
+  const trigger = document.getElementById('clubTrigger');
+  const menu    = document.getElementById('clubMenu');
+  trigger.classList.toggle('open');
+  menu.classList.toggle('open');
+}
+
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('clubDropdownWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('clubTrigger').classList.remove('open');
+    document.getElementById('clubMenu').classList.remove('open');
+  }
+});
+
+function clearClubSelection() {
+  document.querySelectorAll('.club-cb').forEach(cb => cb.checked = false);
+  document.getElementById('filterClub').value = '';
+  updateClubTriggerLabel();
+  doSearch();
+}
+
+function clubChanged() {
+  const checked = document.querySelectorAll('.club-cb:checked');
+  // For now support single club selection — use first checked
+  const first = checked[0];
+  document.getElementById('filterClub').value = first ? first.value : '';
+  updateClubTriggerLabel();
+  doSearch();
+}
+
+function updateClubTriggerLabel() {
+  const checked = document.querySelectorAll('.club-cb:checked');
+  const allBox  = document.getElementById('clubAllBox');
+  if (checked.length === 0) {
+    document.getElementById('clubTriggerLabel').textContent = 'Any club';
+    allBox.style.background = 'var(--green)';
+    allBox.style.borderColor = 'var(--green)';
+  } else if (checked.length === 1) {
+    document.getElementById('clubTriggerLabel').textContent = checked[0].dataset.name;
+    allBox.style.background = 'var(--white)';
+    allBox.style.borderColor = 'var(--line)';
+  } else {
+    document.getElementById('clubTriggerLabel').textContent = `${checked.length} clubs`;
+    allBox.style.background = 'var(--white)';
+    allBox.style.borderColor = 'var(--line)';
+  }
 }
 
 function clearFilters() {
@@ -790,6 +851,8 @@ function clearFilters() {
   document.getElementById('leagueAll').checked = true;
   document.querySelectorAll('.league-cb').forEach(cb => cb.checked = false);
   document.getElementById('filterClub').value = '';
+  document.querySelectorAll('.club-cb').forEach(cb => cb.checked = false);
+  updateClubTriggerLabel();
   // Reset preset buttons
   document.querySelectorAll('#clubPresets .preset-btn').forEach((b,i) => b.classList.toggle('active', i===0));
   document.querySelectorAll('#big5Presets .preset-btn').forEach((b,i) => b.classList.toggle('active', i===0));
