@@ -2,17 +2,21 @@
 /**
  * footy-history importer
  *
- * Runs in sequence: phase2 → trophies → fixtures
- * Saves progress to Neon so each daily run picks up exactly where it left off.
+ * Priority-tiered import — runs in order, saves progress to Neon so each
+ * daily run picks up exactly where it left off.
  *
- * Job order (auto mode):
- *   1. phase2   — fill full career histories for all players
- *   2. trophies — pull trophy/honours data for all players
- *   3. fixtures — pull match events + player stats for all fixtures
+ * Tier 1 — Big 5 + MLS players, full career history (1992→)
+ * Tier 2 — Trophies for Tier 1 players
+ * Tier 3 — Fixture stats for Big 5 + European competitions only
+ * Tier 4 — Career history for all remaining players
+ * Tier 5 — Trophies for remaining players
  *
- * Manual run (for testing):
- *   JOB=trophies node importer.js
- *   JOB=fixtures node importer.js
+ * Manual overrides:
+ *   JOB=phase2_priority  node importer.js   (Tier 1 only)
+ *   JOB=phase2           node importer.js   (all remaining players)
+ *   JOB=trophies         node importer.js   (all players)
+ *   JOB=fixtures         node importer.js   (Tier 3)
+ *   JOB=status           node importer.js
  */
 
 import pg from 'pg';
@@ -29,6 +33,28 @@ const CONFIG = {
   DAILY_BUDGET: parseInt(process.env.DAILY_BUDGET || '72000', 10),
   DELAY_MS:     parseInt(process.env.API_DELAY_MS  || '500',    10),
   CAREER_BATCH: 5,   // seasons fetched in parallel per player (phase2)
+};
+
+// Leagues that define "priority" players — Big 5 + MLS
+const BIG5_MLS_LEAGUES = [
+  'Premier League',
+  'La Liga',
+  'Bundesliga',
+  'Serie A',
+  'Ligue 1',
+  'Major League Soccer',
+];
+
+// European club competitions included in fixture import
+const PRIORITY_FIXTURE_LEAGUES = {
+  39:  'Premier League',
+  140: 'La Liga',
+  78:  'Bundesliga',
+  135: 'Serie A',
+  61:  'Ligue 1',
+  2:   'UEFA Champions League',
+  3:   'UEFA Europa League',
+  848: 'UEFA Europa Conference League',
 };
 
 // ── DB ────────────────────────────────────────────────────────────────────────
@@ -156,54 +182,82 @@ async function upsertStint(playerId, clubId, stat) {
 }
 
 // ── PHASE 2: career histories ─────────────────────────────────────────────────
-async function runPhase2() {
-  console.log('\n════════ PHASE 2 — Career histories ════════\n');
-  const job = await getProgress('phase2');
+async function fetchCareerForPlayer(player, allSeasons) {
+  for (let i = 0; i < allSeasons.length; i += CONFIG.CAREER_BATCH) {
+    const batch = allSeasons.slice(i, i + CONFIG.CAREER_BATCH);
+    const results = await Promise.all(
+      batch.map(s => api(`/players?id=${player.api_id}&season=${s}`).catch(err => {
+        if (err instanceof BudgetError) throw err;
+        return null;
+      }))
+    );
+    for (const data of results) {
+      if (!data?.response?.length) continue;
+      for (const entry of data.response) {
+        for (const stat of entry.statistics) {
+          if (!stat.team?.id) continue;
+          const clubId = await upsertClub(stat.team);
+          await upsertStint(player.id, clubId, stat);
+        }
+      }
+    }
+  }
+  await q(`UPDATE players SET career_fetched=true, updated_at=now() WHERE id=$1`, [player.id]);
+}
+
+async function runPhase2(priorityOnly = false) {
+  const label = priorityOnly ? 'PHASE 2 — Career histories (Big 5 + MLS priority)' : 'PHASE 2 — Career histories (remaining players)';
+  console.log(`\n════════ ${label} ════════\n`);
+
+  const jobType = priorityOnly ? 'phase2_priority' : 'phase2';
+  const job = await getProgress(jobType);
   let prog = job.progress || {};
   let total = job.total_processed || 0;
 
-  // Get all available seasons once
   const seasonsData = await api('/players/seasons');
-  const allSeasons = (seasonsData.response || []).filter(s => s >= 2000);
+  const allSeasons = (seasonsData.response || []).filter(s => s >= 1992);
   console.log(`Seasons: ${allSeasons.join(', ')}\n`);
 
+  // Priority query: players who appeared in Big 5 or MLS leagues
+  const leaguePlaceholders = BIG5_MLS_LEAGUES.map((_, i) => `$${i+1}`).join(',');
+  const priorityWhere = `
+    WHERE career_fetched = false
+    AND id IN (
+      SELECT DISTINCT player_id FROM player_club_stints
+      WHERE league_name IN (${leaguePlaceholders})
+    )
+  `;
+  const allWhere = `WHERE career_fetched = false AND id NOT IN (
+    SELECT DISTINCT player_id FROM player_club_stints
+    WHERE league_name IN (${leaguePlaceholders})
+  )`;
+
+  const whereClause = priorityOnly ? priorityWhere : allWhere;
+  const whereParams = BIG5_MLS_LEAGUES;
+
   while (true) {
-    const { rows } = await q(`
-      SELECT id, api_id, name FROM players
-      WHERE career_fetched = false ORDER BY id LIMIT 100
-    `);
-    if (!rows.length) { await markDone('phase2'); console.log('✅ Phase 2 complete'); return true; }
+    const { rows } = await q(
+      `SELECT id, api_id, name FROM players ${whereClause} ORDER BY id LIMIT 100`,
+      whereParams
+    );
+
+    if (!rows.length) {
+      await markDone(jobType);
+      console.log(`✅ ${label} complete`);
+      return true;
+    }
 
     for (const player of rows) {
       console.log(`\n→ ${player.name} (${player.api_id})`);
       try {
-        for (let i = 0; i < allSeasons.length; i += CONFIG.CAREER_BATCH) {
-          const batch = allSeasons.slice(i, i + CONFIG.CAREER_BATCH);
-          const results = await Promise.all(
-            batch.map(s => api(`/players?id=${player.api_id}&season=${s}`).catch(err => {
-              if (err instanceof BudgetError) throw err;
-              return null;
-            }))
-          );
-          for (const data of results) {
-            if (!data?.response?.length) continue;
-            for (const entry of data.response) {
-              for (const stat of entry.statistics) {
-                if (!stat.team?.id) continue;
-                const clubId = await upsertClub(stat.team);
-                await upsertStint(player.id, clubId, stat);
-              }
-            }
-          }
-        }
-        await q(`UPDATE players SET career_fetched=true, updated_at=now() WHERE id=$1`, [player.id]);
+        await fetchCareerForPlayer(player, allSeasons);
         total++;
-        await saveProgress('phase2', prog, total);
+        await saveProgress(jobType, prog, total);
         console.log(`  ✓ [${callsThisRun} calls used]`);
       } catch(err) {
         if (err instanceof BudgetError) {
           console.log(`\n⚠ Budget hit: ${err.message}`);
-          await saveProgress('phase2', prog, total);
+          await saveProgress(jobType, prog, total);
           return false;
         }
         console.error(`  ✗ ${player.name}: ${err.message}`);
@@ -213,17 +267,29 @@ async function runPhase2() {
 }
 
 // ── TROPHIES ──────────────────────────────────────────────────────────────────
-async function runTrophies() {
-  console.log('\n════════ TROPHIES ════════\n');
-  const job = await getProgress('trophies');
+async function runTrophies(priorityOnly = false) {
+  const label = priorityOnly ? 'TROPHIES (Big 5 + MLS priority)' : 'TROPHIES (remaining)';
+  console.log(`\n════════ ${label} ════════\n`);
+  const jobType = priorityOnly ? 'trophies_priority' : 'trophies';
+  const job = await getProgress(jobType);
   let total = job.total_processed || 0;
 
+  const leaguePlaceholders = BIG5_MLS_LEAGUES.map((_, i) => `$${i+1}`).join(',');
+  const priorityWhere = `WHERE trophies_fetched = false AND id IN (
+    SELECT DISTINCT player_id FROM player_club_stints WHERE league_name IN (${leaguePlaceholders})
+  )`;
+  const allWhere = `WHERE trophies_fetched = false AND id NOT IN (
+    SELECT DISTINCT player_id FROM player_club_stints WHERE league_name IN (${leaguePlaceholders})
+  )`;
+  const whereClause = priorityOnly ? priorityWhere : allWhere;
+  const whereParams = BIG5_MLS_LEAGUES;
+
   while (true) {
-    const { rows } = await q(`
-      SELECT id, api_id, name FROM players
-      WHERE trophies_fetched = false ORDER BY id LIMIT 200
-    `);
-    if (!rows.length) { await markDone('trophies'); console.log('✅ Trophies complete'); return true; }
+    const { rows } = await q(
+      `SELECT id, api_id, name FROM players ${whereClause} ORDER BY id LIMIT 200`,
+      whereParams
+    );
+    if (!rows.length) { await markDone(jobType); console.log(`✅ ${label} complete`); return true; }
 
     for (const player of rows) {
       try {
@@ -242,13 +308,13 @@ async function runTrophies() {
         await q(`UPDATE players SET trophies_fetched=true, updated_at=now() WHERE id=$1`, [player.id]);
         total++;
         if (total % 100 === 0) {
-          await saveProgress('trophies', {}, total);
+          await saveProgress(jobType, {}, total);
           console.log(`  ${total} players done [${callsThisRun} calls]`);
         }
       } catch(err) {
         if (err instanceof BudgetError) {
           console.log(`\n⚠ Budget hit: ${err.message}`);
-          await saveProgress('trophies', {}, total);
+          await saveProgress(jobType, {}, total);
           return false;
         }
         console.error(`  ✗ ${player.name}: ${err.message}`);
@@ -262,22 +328,9 @@ async function runTrophies() {
 // ── FIXTURES ──────────────────────────────────────────────────────────────────
 // Strategy: iterate league+season combos, fetch all fixture IDs, then
 // fetch player stats + events for each fixture
-const FIXTURE_LEAGUES = {
-  39:  'Premier League',
-  140: 'La Liga',
-  78:  'Bundesliga',
-  135: 'Serie A',
-  61:  'Ligue 1',
-  94:  'Primeira Liga',
-  88:  'Eredivisie',
-  144: 'Jupiler Pro League',
-  203: 'Süper Lig',
-  2:   'UEFA Champions League',
-  3:   'UEFA Europa League',
-  848: 'UEFA Europa Conference League',
-};
+// FIXTURE_LEAGUES now defined as PRIORITY_FIXTURE_LEAGUES in CONFIG
 
-const FIXTURE_SEASONS = [2015,2016,2017,2018,2019,2020,2021,2022,2023,2024];
+const FIXTURE_SEASONS = [1992,1993,1994,1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024];
 
 async function runFixtures() {
   console.log('\n════════ FIXTURES ════════\n');
@@ -285,7 +338,7 @@ async function runFixtures() {
   let prog = job.progress || { leagueIdx: 0, seasonIdx: 0, fixtureOffset: 0 };
   let total = job.total_processed || 0;
 
-  const leagueEntries = Object.entries(FIXTURE_LEAGUES);
+  const leagueEntries = Object.entries(PRIORITY_FIXTURE_LEAGUES);
 
   for (let li = prog.leagueIdx; li < leagueEntries.length; li++) {
     const [leagueId, leagueName] = leagueEntries[li];
@@ -466,29 +519,48 @@ try {
     await runTrophies();
   } else if (JOB === 'fixtures') {
     await runFixtures();
+  } else if (JOB === 'phase2_priority') {
+    await runPhase2(true);
   } else {
-    // auto: run jobs in order, stop when budget is hit
+    // auto: tiered priority order
     await printStatus();
 
-    if (!await isJobDone('phase2')) {
-      console.log('Starting phase2...');
-      const ok = await runPhase2();
-      if (!ok) { console.log('Budget hit during phase2 — will resume tomorrow.'); process.exit(0); }
+    // ── Tier 1: Big 5 + MLS career histories ─────────────────────────
+    if (!await isJobDone('phase2_priority')) {
+      console.log('\n▶ Tier 1 — Big 5 + MLS career histories...');
+      const ok = await runPhase2(true);
+      if (!ok) { console.log('Budget hit — will resume tomorrow.'); process.exit(0); }
     }
 
-    if (!await isJobDone('trophies')) {
-      console.log('Starting trophies...');
-      const ok = await runTrophies();
-      if (!ok) { console.log('Budget hit during trophies — will resume tomorrow.'); process.exit(0); }
+    // ── Tier 2: Trophies for Big 5 + MLS players ─────────────────────
+    if (!await isJobDone('trophies_priority')) {
+      console.log('\n▶ Tier 2 — Trophies for Big 5 + MLS players...');
+      const ok = await runTrophies(true);
+      if (!ok) { console.log('Budget hit — will resume tomorrow.'); process.exit(0); }
     }
 
+    // ── Tier 3: Fixture stats for Big 5 + European competitions ──────
     if (!await isJobDone('fixtures')) {
-      console.log('Starting fixtures...');
+      console.log('\n▶ Tier 3 — Fixture stats (Big 5 + European comps)...');
       const ok = await runFixtures();
-      if (!ok) { console.log('Budget hit during fixtures — will resume tomorrow.'); process.exit(0); }
+      if (!ok) { console.log('Budget hit — will resume tomorrow.'); process.exit(0); }
     }
 
-    console.log('\n🎉 All jobs complete!');
+    // ── Tier 4: Career histories for remaining players ────────────────
+    if (!await isJobDone('phase2')) {
+      console.log('\n▶ Tier 4 — Career histories (remaining players)...');
+      const ok = await runPhase2(false);
+      if (!ok) { console.log('Budget hit — will resume tomorrow.'); process.exit(0); }
+    }
+
+    // ── Tier 5: Trophies for remaining players ────────────────────────
+    if (!await isJobDone('trophies')) {
+      console.log('\n▶ Tier 5 — Trophies (remaining players)...');
+      const ok = await runTrophies(false);
+      if (!ok) { console.log('Budget hit — will resume tomorrow.'); process.exit(0); }
+    }
+
+    console.log('\n🎉 All tiers complete!');
     await printStatus();
   }
 } catch(err) {
