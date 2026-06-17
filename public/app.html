@@ -122,63 +122,81 @@
   }
   .filter-select:focus { outline: none; border-color: var(--green); }
 
-  /* League checkboxes */
-  .league-check-list { display: flex; flex-direction: column; gap: 6px; }
-  .league-check-item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-  .league-check-item input[type="checkbox"] { display: none; }
-  .league-check-box {
-    width: 16px; height: 16px;
-    border: 2px solid var(--line);
-    border-radius: 4px;
-    flex-shrink: 0;
+  /* Multi-select dropdown */
+  .multi-select-wrap { position: relative; }
+  .multi-select-trigger {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; padding: 7px 10px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    font-size: 13px; background: var(--white); cursor: pointer;
+    user-select: none;
+  }
+  .multi-select-trigger:hover { border-color: #bbb; }
+  .multi-select-trigger.open { border-color: var(--green); }
+  .multi-select-menu {
+    display: none;
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: var(--white); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-md);
+    z-index: 50; padding: 6px 0;
+  }
+  .multi-select-menu.open { display: block; }
+  .multi-select-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+  .multi-select-item:hover { background: var(--surface); }
+  .multi-select-item input[type="checkbox"] { display: none; }
+  .ms-check-box {
+    width: 15px; height: 15px; flex-shrink: 0;
+    border: 2px solid var(--line); border-radius: 3px;
     display: flex; align-items: center; justify-content: center;
-    background: var(--white);
-    transition: background 0.12s, border-color 0.12s;
+    background: var(--white); transition: all 0.12s;
   }
-  .league-check-item input:checked + .league-check-box {
-    background: var(--green);
-    border-color: var(--green);
+  .multi-select-item input:checked + .ms-check-box {
+    background: var(--green); border-color: var(--green);
   }
-  .league-check-item input:checked + .league-check-box::after {
+  .multi-select-item input:checked + .ms-check-box::after {
     content: '';
-    width: 8px; height: 5px;
-    border-left: 2px solid #fff;
-    border-bottom: 2px solid #fff;
+    width: 7px; height: 4px;
+    border-left: 2px solid #fff; border-bottom: 2px solid #fff;
     transform: rotate(-45deg) translate(1px, -1px);
     display: block;
   }
-  .league-check-label { font-size: 13px; color: var(--ink); user-select: none; }
-  .league-check-all .league-check-label { font-weight: 600; color: var(--ink); }
-  .league-divider { height: 1px; background: var(--line); margin: 6px 0; }
+  .all-item { font-weight: 600; }
+  .ms-divider { height: 1px; background: var(--line); margin: 4px 0; }
 
-  /* Club count slider */
+  /* Preset buttons */
+  .preset-btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .preset-btn {
+    flex: 1; padding: 6px 0; border: 1px solid var(--line);
+    border-radius: var(--radius); font-size: 12px; font-weight: 500;
+    background: var(--white); color: var(--ink-mid); cursor: pointer;
+    transition: all 0.12s; text-align: center;
+  }
+  .preset-btn:hover { border-color: var(--green); color: var(--green); }
+  .preset-btn.active {
+    background: var(--green); border-color: var(--green);
+    color: #fff; font-weight: 600;
+  }
+
+  /* Club count slider — kept for active since */
   .slider-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .slider-value { font-size: 13px; font-weight: 600; color: var(--green); }
   .slider-range-label { font-size: 11px; color: var(--ink-mute); }
   .range-slider {
-    width: 100%;
-    -webkit-appearance: none;
-    appearance: none;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--line);
-    outline: none;
-    margin-bottom: 4px;
+    width: 100%; -webkit-appearance: none; appearance: none;
+    height: 4px; border-radius: 2px; background: var(--line);
+    outline: none; margin-bottom: 4px;
   }
   .range-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: var(--green);
-    cursor: pointer;
+    -webkit-appearance: none; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--green); cursor: pointer;
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
   }
   .range-slider::-moz-range-thumb {
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: var(--green);
-    cursor: pointer;
-    border: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--green); cursor: pointer; border: none;
   }
   .slider-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-mute); }
 
@@ -376,19 +394,25 @@
         <!-- Leagues -->
         <div class="filter-section">
           <span class="filter-section-label">League</span>
-          <div class="league-check-list">
-            <label class="league-check-item league-check-all">
-              <input type="checkbox" id="leagueAll" checked onchange="toggleAllLeagues(this)" />
-              <span class="league-check-box"></span>
-              <span class="league-check-label">All leagues</span>
-            </label>
-            <div class="league-divider"></div>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Premier League|England" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Premier League</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="La Liga|Spain" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">La Liga</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Bundesliga|Germany" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Bundesliga</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Serie A|Italy" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Serie A</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Ligue 1|France" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">Ligue 1</span></label>
-            <label class="league-check-item"><input type="checkbox" class="league-cb" value="Major League Soccer|USA" onchange="leagueChanged()" /><span class="league-check-box"></span><span class="league-check-label">MLS</span></label>
+          <div class="multi-select-wrap" id="leagueDropdownWrap">
+            <div class="multi-select-trigger" id="leagueTrigger" onclick="toggleLeagueDropdown()">
+              <span id="leagueTriggerLabel">All leagues</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 4l4 4 4-4"/></svg>
+            </div>
+            <div class="multi-select-menu" id="leagueMenu">
+              <label class="multi-select-item all-item">
+                <input type="checkbox" id="leagueAll" checked onchange="toggleAllLeagues(this)" />
+                <span class="ms-check-box"></span>
+                <span>All leagues</span>
+              </label>
+              <div class="ms-divider"></div>
+              <label class="multi-select-item"><input type="checkbox" class="league-cb" value="Premier League|England" onchange="leagueChanged()" /><span class="ms-check-box"></span><span>Premier League</span></label>
+              <label class="multi-select-item"><input type="checkbox" class="league-cb" value="La Liga|Spain" onchange="leagueChanged()" /><span class="ms-check-box"></span><span>La Liga</span></label>
+              <label class="multi-select-item"><input type="checkbox" class="league-cb" value="Bundesliga|Germany" onchange="leagueChanged()" /><span class="ms-check-box"></span><span>Bundesliga</span></label>
+              <label class="multi-select-item"><input type="checkbox" class="league-cb" value="Serie A|Italy" onchange="leagueChanged()" /><span class="ms-check-box"></span><span>Serie A</span></label>
+              <label class="multi-select-item"><input type="checkbox" class="league-cb" value="Ligue 1|France" onchange="leagueChanged()" /><span class="ms-check-box"></span><span>Ligue 1</span></label>
+              <label class="multi-select-item"><input type="checkbox" class="league-cb" value="Major League Soccer|USA" onchange="leagueChanged()" /><span class="ms-check-box"></span><span>MLS</span></label>
+            </div>
           </div>
         </div>
 
@@ -400,15 +424,28 @@
           </select>
         </div>
 
-        <!-- Club count slider -->
+        <!-- Total club count presets -->
         <div class="filter-section">
-          <span class="filter-section-label">Min. clubs</span>
-          <div class="slider-row">
-            <span class="slider-range-label">At least</span>
-            <span class="slider-value" id="sliderVal">Any</span>
+          <span class="filter-section-label">Total clubs</span>
+          <div class="preset-btn-group" id="clubPresets">
+            <button class="preset-btn active" data-val="0" onclick="setClubPreset(this)">Any</button>
+            <button class="preset-btn" data-val="2" onclick="setClubPreset(this)">2+</button>
+            <button class="preset-btn" data-val="4" onclick="setClubPreset(this)">4+</button>
+            <button class="preset-btn" data-val="6" onclick="setClubPreset(this)">6+</button>
           </div>
-          <input type="range" class="range-slider" id="filterMinClubs" min="0" max="20" value="0" step="1" oninput="sliderChanged(this)" />
-          <div class="slider-labels"><span>0</span><span>5</span><span>10</span><span>15</span><span>20+</span></div>
+          <input type="hidden" id="filterMinClubs" value="0" />
+        </div>
+
+        <!-- Big 5 club count presets -->
+        <div class="filter-section">
+          <span class="filter-section-label">Big 5 clubs</span>
+          <div class="preset-btn-group" id="big5Presets">
+            <button class="preset-btn active" data-val="0" onclick="setBig5Preset(this)">Any</button>
+            <button class="preset-btn" data-val="2" onclick="setBig5Preset(this)">2+</button>
+            <button class="preset-btn" data-val="4" onclick="setBig5Preset(this)">4+</button>
+            <button class="preset-btn" data-val="6" onclick="setBig5Preset(this)">6+</button>
+          </div>
+          <input type="hidden" id="filterMinBig5" value="0" />
         </div>
 
         <!-- Years active slider -->
@@ -624,9 +661,9 @@ function getSelectedLeagues() {
 }
 
 function toggleAllLeagues(allBox) {
-  const cbs = document.querySelectorAll('.league-cb');
-  cbs.forEach(cb => cb.checked = false);
+  document.querySelectorAll('.league-cb').forEach(cb => cb.checked = false);
   document.getElementById('filterClub').value = '';
+  updateLeagueTriggerLabel();
   loadClubsForLeagues();
   doSearch();
 }
@@ -634,16 +671,61 @@ function toggleAllLeagues(allBox) {
 function leagueChanged() {
   const anyChecked = document.querySelectorAll('.league-cb:checked').length > 0;
   document.getElementById('leagueAll').checked = !anyChecked;
-  // Reset club filter and reload clubs for new league selection
   document.getElementById('filterClub').value = '';
+  updateLeagueTriggerLabel();
   loadClubsForLeagues();
   doSearch();
 }
 
-function sliderChanged(el) {
-  const val = parseInt(el.value);
-  document.getElementById('sliderVal').textContent = val === 0 ? 'Any' : val + '+';
-  debounceSearch();
+// ── League multi-select dropdown ────────────────────────────────────
+function toggleLeagueDropdown() {
+  const trigger = document.getElementById('leagueTrigger');
+  const menu    = document.getElementById('leagueMenu');
+  trigger.classList.toggle('open');
+  menu.classList.toggle('open');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('leagueDropdownWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('leagueTrigger').classList.remove('open');
+    document.getElementById('leagueMenu').classList.remove('open');
+  }
+});
+
+function updateLeagueTriggerLabel() {
+  const checked = Array.from(document.querySelectorAll('.league-cb:checked'));
+  const labels = {
+    'Premier League|England': 'Premier League',
+    'La Liga|Spain': 'La Liga',
+    'Bundesliga|Germany': 'Bundesliga',
+    'Serie A|Italy': 'Serie A',
+    'Ligue 1|France': 'Ligue 1',
+    'Major League Soccer|USA': 'MLS',
+  };
+  if (checked.length === 0) {
+    document.getElementById('leagueTriggerLabel').textContent = 'All leagues';
+  } else if (checked.length === 1) {
+    document.getElementById('leagueTriggerLabel').textContent = labels[checked[0].value] || checked[0].value;
+  } else {
+    document.getElementById('leagueTriggerLabel').textContent = `${checked.length} leagues`;
+  }
+}
+
+// ── Preset buttons ───────────────────────────────────────────────────
+function setClubPreset(btn) {
+  document.querySelectorAll('#clubPresets .preset-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('filterMinClubs').value = btn.dataset.val;
+  doSearch();
+}
+
+function setBig5Preset(btn) {
+  document.querySelectorAll('#big5Presets .preset-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('filterMinBig5').value = btn.dataset.val;
+  doSearch();
 }
 
 function yearSliderChanged(el) {
@@ -702,12 +784,16 @@ function clearFilters() {
   document.getElementById('filterPosition').value = '';
   document.getElementById('filterNationality').value = '';
   document.getElementById('filterMinClubs').value = 0;
-  document.getElementById('sliderVal').textContent = 'Any';
+  document.getElementById('filterMinBig5').value = 0;
   document.getElementById('filterActiveSince').value = 2000;
   document.getElementById('yearSliderVal').textContent = 'Any';
   document.getElementById('leagueAll').checked = true;
   document.querySelectorAll('.league-cb').forEach(cb => cb.checked = false);
   document.getElementById('filterClub').value = '';
+  // Reset preset buttons
+  document.querySelectorAll('#clubPresets .preset-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+  document.querySelectorAll('#big5Presets .preset-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+  updateLeagueTriggerLabel();
   loadClubsForLeagues();
   doSearch();
 }
@@ -720,6 +806,7 @@ async function doSearch() {
   const q           = document.getElementById('searchInput').value.trim();
   const position    = document.getElementById('filterPosition').value;
   const minClubs    = parseInt(document.getElementById('filterMinClubs').value) || 0;
+  const minBig5     = parseInt(document.getElementById('filterMinBig5').value) || 0;
   const nationality = document.getElementById('filterNationality').value;
   const leagues     = getSelectedLeagues();
   const clubId      = document.getElementById('filterClub').value;
@@ -786,7 +873,14 @@ async function doSearch() {
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
-      ${minClubs > 0 ? `HAVING COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) >= ${minClubs}` : 'HAVING COUNT(DISTINCT CASE WHEN ' + IS_LEAGUE + ' THEN s.club_id END) > 0'}
+      HAVING COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) >= ${minClubs}
+        ${minBig5 > 0 ? `AND COUNT(DISTINCT CASE WHEN (
+          (s.league_name = 'Premier League' AND s.league_country = 'England') OR
+          (s.league_name = 'La Liga'        AND s.league_country = 'Spain')   OR
+          (s.league_name = 'Bundesliga'     AND s.league_country = 'Germany') OR
+          (s.league_name = 'Serie A'        AND s.league_country = 'Italy')   OR
+          (s.league_name = 'Ligue 1'        AND s.league_country = 'France')
+        ) THEN s.club_id END) >= ${minBig5}` : ''}
       ORDER BY club_count DESC, p.name
       LIMIT 80
     `;
