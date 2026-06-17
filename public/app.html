@@ -196,6 +196,8 @@
   .player-meta { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
   .clubs-badge { background: var(--green-light); color: var(--green); font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 20px; flex-shrink: 0; white-space: nowrap; }
 
+  .big5-badge { background: #e8f0fe; color: #1a56cc; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 20px; flex-shrink: 0; white-space: nowrap; }
+  .badges-wrap { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; flex-shrink: 0; }
   /* State boxes */
   .state-box { text-align: center; padding: 56px 20px; color: var(--ink-mute); }
   .state-icon { font-size: 34px; margin-bottom: 12px; }
@@ -390,6 +392,14 @@
           </div>
         </div>
 
+        <!-- Club filter (responds to league selection) -->
+        <div class="filter-section">
+          <span class="filter-section-label">Club</span>
+          <select class="filter-select" id="filterClub" onchange="doSearch()">
+            <option value="">Any club</option>
+          </select>
+        </div>
+
         <!-- Club count slider -->
         <div class="filter-section">
           <span class="filter-section-label">Min. clubs</span>
@@ -399,6 +409,17 @@
           </div>
           <input type="range" class="range-slider" id="filterMinClubs" min="0" max="20" value="0" step="1" oninput="sliderChanged(this)" />
           <div class="slider-labels"><span>0</span><span>5</span><span>10</span><span>15</span><span>20+</span></div>
+        </div>
+
+        <!-- Years active slider -->
+        <div class="filter-section">
+          <span class="filter-section-label">Active since</span>
+          <div class="slider-row">
+            <span class="slider-range-label">From</span>
+            <span class="slider-value" id="yearSliderVal">Any</span>
+          </div>
+          <input type="range" class="range-slider" id="filterActiveSince" min="2000" max="2024" value="2000" step="1" oninput="yearSliderChanged(this)" />
+          <div class="slider-labels"><span>2000</span><span>2008</span><span>2016</span><span>2024</span></div>
         </div>
 
         <!-- Nationality -->
@@ -563,13 +584,17 @@ function getSelectedLeagues() {
 function toggleAllLeagues(allBox) {
   const cbs = document.querySelectorAll('.league-cb');
   cbs.forEach(cb => cb.checked = false);
+  document.getElementById('filterClub').value = '';
+  loadClubsForLeagues();
   doSearch();
 }
 
 function leagueChanged() {
-  // If any individual league is checked, uncheck "All"
   const anyChecked = document.querySelectorAll('.league-cb:checked').length > 0;
   document.getElementById('leagueAll').checked = !anyChecked;
+  // Reset club filter and reload clubs for new league selection
+  document.getElementById('filterClub').value = '';
+  loadClubsForLeagues();
   doSearch();
 }
 
@@ -579,13 +604,69 @@ function sliderChanged(el) {
   debounceSearch();
 }
 
+function yearSliderChanged(el) {
+  const val = parseInt(el.value);
+  document.getElementById('yearSliderVal').textContent = val <= 2000 ? 'Any' : val + '+';
+  debounceSearch();
+}
+
+// Load clubs into dropdown based on currently selected leagues
+async function loadClubsForLeagues() {
+  const leagues = getSelectedLeagues();
+  const sel = document.getElementById('filterClub');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Any club</option>';
+
+  if (leagues.length === 0) {
+    // All big 5 + MLS when nothing selected
+    const ALL_LEAGUES = [
+      {name:'Premier League',country:'England'},
+      {name:'La Liga',country:'Spain'},
+      {name:'Bundesliga',country:'Germany'},
+      {name:'Serie A',country:'Italy'},
+      {name:'Ligue 1',country:'France'},
+      {name:'Major League Soccer',country:'USA'},
+    ];
+    await fetchClubs(ALL_LEAGUES, sel, current);
+  } else {
+    await fetchClubs(leagues, sel, current);
+  }
+}
+
+async function fetchClubs(leagues, sel, current) {
+  const conditions = leagues.map((_,idx) =>
+    `(s.league_name = $${idx*2+1} AND s.league_country = $${idx*2+2})`
+  ).join(' OR ');
+  const params = leagues.flatMap(l => [l.name, l.country]);
+  try {
+    const data = await neonSQL(`
+      SELECT DISTINCT c.id, c.name
+      FROM clubs c
+      JOIN player_club_stints s ON s.club_id = c.id
+      WHERE (${conditions}) AND s.appearances > 0
+      ORDER BY c.name
+    `, params);
+    for (const row of (data.rows || [])) {
+      const opt = document.createElement('option');
+      opt.value = row.id;
+      opt.textContent = row.name;
+      if (String(row.id) === String(current)) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  } catch(e) { console.warn('Club load failed:', e.message); }
+}
+
 function clearFilters() {
   document.getElementById('filterPosition').value = '';
   document.getElementById('filterNationality').value = '';
   document.getElementById('filterMinClubs').value = 0;
   document.getElementById('sliderVal').textContent = 'Any';
+  document.getElementById('filterActiveSince').value = 2000;
+  document.getElementById('yearSliderVal').textContent = 'Any';
   document.getElementById('leagueAll').checked = true;
   document.querySelectorAll('.league-cb').forEach(cb => cb.checked = false);
+  document.getElementById('filterClub').value = '';
+  loadClubsForLeagues();
   doSearch();
 }
 
@@ -598,7 +679,9 @@ async function doSearch() {
   const position    = document.getElementById('filterPosition').value;
   const minClubs    = parseInt(document.getElementById('filterMinClubs').value) || 0;
   const nationality = document.getElementById('filterNationality').value;
-  const leagues     = getSelectedLeagues(); // array of league names, empty = all
+  const leagues     = getSelectedLeagues();
+  const clubId      = document.getElementById('filterClub').value;
+  const activeSince = parseInt(document.getElementById('filterActiveSince').value) || 0;
 
   // No early return — show default results when no filters applied
 
@@ -629,10 +712,33 @@ async function doSearch() {
       )`);
     }
 
+    if (clubId) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM player_club_stints cs
+        WHERE cs.player_id = p.id AND cs.club_id = $${i++} AND cs.appearances > 0
+      )`);
+      params.push(clubId);
+    }
+
+    if (activeSince > 2000) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM player_club_stints ys
+        WHERE ys.player_id = p.id AND ys.season_year >= $${i++} AND ys.appearances > 0
+      )`);
+      params.push(activeSince);
+    }
+
     const sql = `
       SELECT
         p.id, p.name, p.nationality, p.position, p.photo_url,
-        COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) AS club_count
+        COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) AS club_count,
+        COUNT(DISTINCT CASE WHEN (
+          (s.league_name = 'Premier League' AND s.league_country = 'England') OR
+          (s.league_name = 'La Liga'        AND s.league_country = 'Spain')   OR
+          (s.league_name = 'Bundesliga'     AND s.league_country = 'Germany') OR
+          (s.league_name = 'Serie A'        AND s.league_country = 'Italy')   OR
+          (s.league_name = 'Ligue 1'        AND s.league_country = 'France')
+        ) THEN s.club_id END) AS big5_count
       FROM players p
       LEFT JOIN player_club_stints s ON s.player_id = p.id AND s.appearances > 0
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
@@ -654,6 +760,7 @@ async function doSearch() {
     let html = `<div class="results-meta"><span>${players.length} player${players.length !== 1 ? 's' : ''} found</span></div><div class="results-grid">`;
     for (const p of players) {
       const clubs = parseInt(p.club_count) || 0;
+      const big5  = parseInt(p.big5_count)  || 0;
       const meta = [p.position, p.nationality].filter(Boolean).join(' · ');
       html += `
         <div class="player-card" onclick="loadPlayerFromDb(${p.id})">
@@ -662,7 +769,10 @@ async function doSearch() {
             <div class="player-name">${esc(p.name)}</div>
             ${meta ? `<div class="player-meta">${esc(meta)}</div>` : ''}
           </div>
-          <div class="clubs-badge">${clubs} club${clubs !== 1 ? 's' : ''}</div>
+          <div class="badges-wrap">
+            <div class="clubs-badge">${clubs} club${clubs !== 1 ? 's' : ''}</div>
+            ${big5 > 0 ? `<div class="big5-badge">${big5} big 5</div>` : ''}
+          </div>
         </div>`;
     }
     html += '</div>';
@@ -1028,6 +1138,8 @@ function esc(str) {
 
 // ── Init ────────────────────────────────────────────────────────────
 loadDbStatus();
+loadClubsForLeagues();
+doSearch();
 
 </script>
 </body>
