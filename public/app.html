@@ -725,7 +725,7 @@ function updateLeagueTriggerLabel() {
   } else if (checked.length === 1) {
     document.getElementById('leagueTriggerLabel').textContent = labels[checked[0].value] || checked[0].value;
   } else {
-    document.getElementById('leagueTriggerLabel').textContent = `${checked.length} leagues`;
+    document.getElementById('leagueTriggerLabel').textContent = `${checked.length} leagues (AND)`;
   }
 }
 
@@ -815,16 +815,15 @@ function clearClubSelection() {
 }
 
 function clubChanged() {
-  const checked = document.querySelectorAll('.club-cb:checked');
-  // For now support single club selection — use first checked
-  const first = checked[0];
-  document.getElementById('filterClub').value = first ? first.value : '';
+  const checked = Array.from(document.querySelectorAll('.club-cb:checked'));
+  // Store comma-separated list of club IDs for AND filtering
+  document.getElementById('filterClub').value = checked.map(cb => cb.value).join(',');
   updateClubTriggerLabel();
   doSearch();
 }
 
 function updateClubTriggerLabel() {
-  const checked = document.querySelectorAll('.club-cb:checked');
+  const checked = Array.from(document.querySelectorAll('.club-cb:checked'));
   const allBox  = document.getElementById('clubAllBox');
   if (checked.length === 0) {
     document.getElementById('clubTriggerLabel').textContent = 'Any club';
@@ -835,7 +834,7 @@ function updateClubTriggerLabel() {
     allBox.style.background = 'var(--white)';
     allBox.style.borderColor = 'var(--line)';
   } else {
-    document.getElementById('clubTriggerLabel').textContent = `${checked.length} clubs`;
+    document.getElementById('clubTriggerLabel').textContent = `${checked.length} clubs (AND)`;
     allBox.style.background = 'var(--white)';
     allBox.style.borderColor = 'var(--line)';
   }
@@ -888,28 +887,29 @@ async function doSearch() {
     if (position) { conditions.push(`p.position = $${i++}`); params.push(position); }
     if (nationality) { conditions.push(`p.nationality = $${i++}`); params.push(nationality); }
 
-    // League filter: player must have appeared in ANY of the selected leagues
-    // Club count is always total career clubs regardless of filter
-    if (leagues.length > 0) {
-      const leagueConditions = leagues.map(l => {
-        const ni = i++; const ci = i++;
-        params.push(l.name); params.push(l.country);
-        return `(ls.league_name = $${ni} AND ls.league_country = $${ci})`;
-      });
+    // League filter: player must have appeared in ALL selected leagues (AND)
+    // One EXISTS subquery per league so each must be satisfied independently
+    for (const l of leagues) {
+      const ni = i++; const ci = i++;
+      params.push(l.name); params.push(l.country);
       conditions.push(`EXISTS (
         SELECT 1 FROM player_club_stints ls
         WHERE ls.player_id = p.id
           AND ls.appearances > 0
-          AND (${leagueConditions.join(' OR ')})
+          AND ls.league_name = $${ni}
+          AND ls.league_country = $${ci}
       )`);
     }
 
-    if (clubId) {
+    // Club filter: player must have played for ALL selected clubs (AND)
+    const clubIds = document.getElementById('filterClub').value
+      .split(',').map(v => v.trim()).filter(Boolean);
+    for (const cid of clubIds) {
       conditions.push(`EXISTS (
         SELECT 1 FROM player_club_stints cs
         WHERE cs.player_id = p.id AND cs.club_id = $${i++} AND cs.appearances > 0
       )`);
-      params.push(clubId);
+      params.push(parseInt(cid));
     }
 
     if (activeSince > 2000) {
