@@ -1,77 +1,435 @@
-import 'dotenv/config';
-import express from 'express';
-import pg from 'pg';
-import { fileURLToPath } from 'url';
-import path from 'path';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cluck History — Admin</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --green: #1a7a4a; --green-light: #e8f5ee; --green-mid: #2d9e60; --pitch: #0f5c35;
+    --ink: #1a1a1a; --ink-mid: #444; --ink-mute: #888; --line: #e2e2e2;
+    --surface: #f7f7f5; --white: #ffffff;
+    --radius: 8px; --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08); --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --blue: #1a56cc; --blue-light: #e8f0fe;
+    --orange: #c84b00; --orange-light: #fff3e0;
+    --purple: #6a1b9a; --purple-light: #f3e5f5;
+    --teal: #1b5e20; --teal-light: #e8f5e9;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--surface); color: var(--ink); min-height: 100vh; font-size: 14px; }
 
-const { Pool } = pg;
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app  = express();
-const PORT = process.env.PORT || 3000;
+  .header { background: var(--pitch); padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+  .header-brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; }
+  .header-logo { width: 28px; height: 28px; background: var(--green-mid); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .header-title { font-size: 15px; font-weight: 600; color: #fff; }
+  .header-sub { font-size: 11px; color: rgba(255,255,255,0.55); }
+  .back-link { color: rgba(255,255,255,0.7); font-size: 13px; text-decoration: none; display: flex; align-items: center; gap: 5px; }
+  .back-link:hover { color: #fff; }
 
-// ── Database ──────────────────────────────────────────────────────────────────
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 5,
-});
+  /* Tabs */
+  .tabs { background: var(--white); border-bottom: 1px solid var(--line); padding: 0 24px; display: flex; gap: 0; }
+  .tab { padding: 13px 20px; font-size: 14px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; color: var(--ink-mute); transition: all 0.15s; }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--green); border-bottom-color: var(--green); }
 
-// ── Middleware ────────────────────────────────────────────────────────────────
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+  /* Page layout */
+  .page { display: none; max-width: 1400px; margin: 0 auto; padding: 24px; }
+  .page.active { display: block; }
 
-// ── SQL proxy — SELECT only (public app) ─────────────────────────────────────
-app.post('/query', async (req, res) => {
-  const { query, params = [] } = req.body;
-  if (!query) return res.status(400).json({ error: 'Missing query' });
-  if (!query.trim().toUpperCase().startsWith('SELECT'))
-    return res.status(403).json({ error: 'Only SELECT queries are permitted' });
+  /* Toolbar */
+  .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .search-input { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; background: var(--white); width: 260px; }
+  .search-input:focus { outline: none; border-color: var(--green); }
+  .filter-select { padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; background: var(--white); cursor: pointer; }
+  .filter-select:focus { outline: none; border-color: var(--green); }
+  .btn { padding: 7px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--green); color: #fff; }
+  .btn-primary:hover { background: var(--green-mid); }
+  .btn-ghost { background: transparent; border-color: var(--line); color: var(--ink-mid); }
+  .btn-ghost:hover { background: var(--surface); }
+  .count-pill { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 4px 12px; font-size: 12px; color: var(--ink-mute); margin-left: auto; }
+
+  /* Table */
+  .table-wrap { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { background: var(--surface); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ink-mute); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #fafafa; }
+
+  /* Competition type badges */
+  .type-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+  .type-League { background: var(--green-light); color: var(--green); }
+  .type-Domestic\.Cup, .type-Domestic_Cup { background: var(--orange-light); color: var(--orange); }
+  .type-Continental\.Competition, .type-Continental_Competition { background: var(--blue-light); color: var(--blue); }
+  .type-International { background: var(--purple-light); color: var(--purple); }
+  .type-Youth { background: var(--teal-light); color: var(--teal); }
+  .type-Other { background: var(--surface); color: var(--ink-mute); }
+
+  /* Inline edit */
+  .type-select { padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; font-size: 12px; background: var(--white); cursor: pointer; }
+  .type-select:focus { outline: none; border-color: var(--green); }
+  .save-btn { padding: 3px 10px; border: none; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; background: var(--green); color: #fff; margin-left: 4px; }
+  .save-btn:hover { background: var(--green-mid); }
+  .saved-flash { color: var(--green); font-size: 11px; font-weight: 600; margin-left: 6px; }
+
+  /* Club logo */
+  .club-logo { width: 22px; height: 22px; object-fit: contain; vertical-align: middle; margin-right: 8px; }
+  .club-logo-ph { display: inline-block; width: 22px; height: 22px; background: var(--green-light); border-radius: 3px; vertical-align: middle; margin-right: 8px; }
+
+  /* Spinner */
+  .spinner { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 40px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .state-box { text-align: center; padding: 48px; color: var(--ink-mute); }
+
+  /* Pagination */
+  .pagination { display: flex; gap: 6px; align-items: center; justify-content: flex-end; margin-top: 14px; }
+  .page-btn { padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 12px; cursor: pointer; background: var(--white); color: var(--ink-mid); }
+  .page-btn:hover { background: var(--surface); }
+  .page-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+  .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .page-info { font-size: 12px; color: var(--ink-mute); }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-brand">
+    <div class="header-logo">⚽</div>
+    <div>
+      <div class="header-title">Cluck History</div>
+      <div class="header-sub">Admin</div>
+    </div>
+  </div>
+  <a href="/" class="back-link">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    Back to app
+  </a>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('competitions')">Competitions</div>
+  <div class="tab" onclick="switchTab('clubs')">Clubs</div>
+</div>
+
+<!-- COMPETITIONS PAGE -->
+<div class="page active" id="pageCompetitions">
+  <div class="toolbar">
+    <input class="search-input" id="compSearch" type="text" placeholder="Search competition name…" oninput="debounce(loadCompetitions, 300)()" />
+    <select class="filter-select" id="compTypeFilter" onchange="loadCompetitions()">
+      <option value="">All types</option>
+      <option value="League">League</option>
+      <option value="Domestic Cup">Domestic Cup</option>
+      <option value="Continental Competition">Continental Competition</option>
+      <option value="International">International</option>
+      <option value="Youth">Youth</option>
+      <option value="Other">Other</option>
+    </select>
+    <select class="filter-select" id="compCountryFilter" onchange="loadCompetitions()">
+      <option value="">All countries</option>
+    </select>
+    <span class="count-pill" id="compCount">— competitions</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>League name</th>
+          <th>Country</th>
+          <th>Players</th>
+          <th>Type</th>
+        </tr>
+      </thead>
+      <tbody id="compBody">
+        <tr><td colspan="4"><div class="spinner"></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" id="compPagination"></div>
+</div>
+
+<!-- CLUBS PAGE -->
+<div class="page" id="pageClubs">
+  <div class="toolbar">
+    <input class="search-input" id="clubSearch" type="text" placeholder="Search club name…" oninput="debounce(loadClubs, 300)()" />
+    <select class="filter-select" id="clubCountryFilter" onchange="loadClubs()">
+      <option value="">All countries</option>
+    </select>
+    <select class="filter-select" id="clubLeagueFilter" onchange="loadClubs()">
+      <option value="">All leagues</option>
+      <option value="Premier League">Premier League</option>
+      <option value="La Liga">La Liga</option>
+      <option value="Bundesliga">Bundesliga</option>
+      <option value="Serie A">Serie A</option>
+      <option value="Ligue 1">Ligue 1</option>
+      <option value="Major League Soccer">MLS</option>
+    </select>
+    <span class="count-pill" id="clubCount">— clubs</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Club</th>
+          <th>Country</th>
+          <th>Players in DB</th>
+          <th>League appearances in</th>
+        </tr>
+      </thead>
+      <tbody id="clubBody">
+        <tr><td colspan="4"><div class="spinner"></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" id="clubPagination"></div>
+</div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────
+const PAGE_SIZE = 100;
+let compPage = 1, clubPage = 1;
+let compTotal = 0, clubTotal = 0;
+
+// ── Neon SQL proxy ───────────────────────────────────────────────────
+async function sql(query, params = []) {
+  const res = await fetch('/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, params }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.error || `Server error ${res.status}`);
+  }
+  return res.json();
+}
+
+// Also need a write endpoint for updating competition types
+async function sqlWrite(query, params = []) {
+  const res = await fetch('/admin-query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, params }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.error || `Server error ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', (i === 0 && tab === 'competitions') || (i === 1 && tab === 'clubs'));
+  });
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(tab === 'competitions' ? 'pageCompetitions' : 'pageClubs').classList.add('active');
+  if (tab === 'competitions') loadCompetitions();
+  else loadClubs();
+}
+
+// ── Debounce ─────────────────────────────────────────────────────────
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+
+// ── COMPETITIONS ─────────────────────────────────────────────────────
+async function loadCompetitions(page = compPage) {
+  compPage = page;
+  const search  = document.getElementById('compSearch').value.trim();
+  const type    = document.getElementById('compTypeFilter').value;
+  const country = document.getElementById('compCountryFilter').value;
+
+  let conditions = [], params = [], i = 1;
+  if (search)  { conditions.push(`ct.league_name ILIKE $${i++}`); params.push(`%${search}%`); }
+  if (type)    { conditions.push(`ct.competition_type = $${i++}`); params.push(type); }
+  if (country) { conditions.push(`ct.country = $${i++}`); params.push(country); }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  const offset = (page - 1) * PAGE_SIZE;
+
   try {
-    const result = await pool.query(query, params);
-    res.json({ rows: result.rows });
-  } catch (err) {
-    console.error('DB error:', err.message);
-    res.status(500).json({ error: err.message });
+    const [rows, total] = await Promise.all([
+      sql(`
+        SELECT
+          ct.league_name, ct.competition_type, ct.country,
+          COUNT(DISTINCT s.player_id)::int AS player_count
+        FROM competition_types ct
+        LEFT JOIN player_club_stints s ON s.league_name = ct.league_name
+        ${where}
+        GROUP BY ct.league_name, ct.competition_type, ct.country
+        ORDER BY ct.competition_type, ct.league_name
+        LIMIT ${PAGE_SIZE} OFFSET ${offset}
+      `, params),
+      sql(`SELECT COUNT(*)::int AS total FROM competition_types ct ${where}`, params),
+    ]);
+
+    compTotal = total.rows[0].total;
+    document.getElementById('compCount').textContent = `${compTotal.toLocaleString()} competitions`;
+    renderCompetitions(rows.rows);
+    renderPagination('compPagination', compPage, compTotal, p => loadCompetitions(p));
+  } catch(e) {
+    document.getElementById('compBody').innerHTML = `<tr><td colspan="4" style="padding:24px;color:red">${e.message}</td></tr>`;
   }
-});
+}
 
-// ── Admin SQL proxy — SELECT + UPDATE only (admin page) ──────────────────────
-// Restricted to UPDATE on competition_types only — no DROP/DELETE/INSERT
-app.post('/admin-query', async (req, res) => {
-  const { query, params = [] } = req.body;
-  if (!query) return res.status(400).json({ error: 'Missing query' });
-
-  const trimmed = query.trim().toUpperCase();
-  const isSelect = trimmed.startsWith('SELECT');
-  const isAllowedUpdate = trimmed.startsWith('UPDATE COMPETITION_TYPES');
-
-  if (!isSelect && !isAllowedUpdate) {
-    return res.status(403).json({ error: 'Only SELECT and UPDATE competition_types queries are permitted' });
+function renderCompetitions(rows) {
+  if (!rows.length) {
+    document.getElementById('compBody').innerHTML = `<tr><td colspan="4"><div class="state-box">No competitions found</div></td></tr>`;
+    return;
   }
+  document.getElementById('compBody').innerHTML = rows.map((r, idx) => {
+    const typeSlug = (r.competition_type || 'other').replace(/\s/g, '_');
+    return `<tr>
+      <td style="font-weight:500">${esc(r.league_name)}</td>
+      <td style="color:var(--ink-mute)">${esc(r.country || '—')}</td>
+      <td style="color:var(--ink-mute)">${(r.player_count || 0).toLocaleString()}</td>
+      <td>
+        <select class="type-select" id="ts-${idx}" onchange="">
+          ${['League','Domestic Cup','Continental Competition','International','Youth','Other'].map(t =>
+            `<option value="${t}" ${t === r.competition_type ? 'selected' : ''}>${t}</option>`
+          ).join('')}
+        </select>
+        <button class="save-btn" onclick="saveType('${esc(r.league_name)}', 'ts-${idx}', this)">Save</button>
+        <span class="saved-flash" id="flash-${idx}" style="display:none">✓ Saved</span>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function saveType(leagueName, selectId, btn) {
+  const newType = document.getElementById(selectId).value;
+  const flash = btn.nextElementSibling;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await sqlWrite(`UPDATE competition_types SET competition_type = $1, updated_at = now() WHERE league_name = $2`, [newType, leagueName]);
+    flash.style.display = 'inline';
+    setTimeout(() => { flash.style.display = 'none'; }, 2000);
+  } catch(e) {
+    alert('Failed to save: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = 'Save';
+}
+
+// ── CLUBS ─────────────────────────────────────────────────────────────
+async function loadClubs(page = clubPage) {
+  clubPage = page;
+  const search  = document.getElementById('clubSearch').value.trim();
+  const country = document.getElementById('clubCountryFilter').value;
+  const league  = document.getElementById('clubLeagueFilter').value;
+
+  let conditions = [], params = [], i = 1;
+  if (search)  { conditions.push(`c.name ILIKE $${i++}`); params.push(`%${search}%`); }
+  if (country) { conditions.push(`c.country = $${i++}`); params.push(country); }
+  if (league)  { conditions.push(`EXISTS (SELECT 1 FROM player_club_stints ls WHERE ls.club_id = c.id AND ls.league_name = $${i++})`); params.push(league); }
+
+  // Exclude youth/reserve clubs
+  conditions.push(`c.name NOT ILIKE '%U17%' AND c.name NOT ILIKE '%U18%' AND c.name NOT ILIKE '%U19%' AND c.name NOT ILIKE '%U20%' AND c.name NOT ILIKE '%U21%' AND c.name NOT ILIKE '%U23%' AND c.name NOT ILIKE '% II%' AND c.name NOT ILIKE '%reserve%' AND c.name NOT ILIKE '%youth%'`);
+
+  const where = 'WHERE ' + conditions.join(' AND ');
+  const offset = (page - 1) * PAGE_SIZE;
 
   try {
-    const result = await pool.query(query, params);
-    res.json({ rows: result.rows || [], rowCount: result.rowCount });
-  } catch (err) {
-    console.error('Admin DB error:', err.message);
-    res.status(500).json({ error: err.message });
+    const [rows, total] = await Promise.all([
+      sql(`
+        SELECT
+          c.id, c.name, c.country, c.logo_url,
+          COUNT(DISTINCT s.player_id)::int AS player_count,
+          STRING_AGG(DISTINCT s.league_name, ', ' ORDER BY s.league_name) AS leagues
+        FROM clubs c
+        LEFT JOIN player_club_stints s ON s.club_id = c.id AND s.appearances > 0
+        ${where}
+        GROUP BY c.id
+        ORDER BY player_count DESC, c.name
+        LIMIT ${PAGE_SIZE} OFFSET ${offset}
+      `, params),
+      sql(`SELECT COUNT(*)::int AS total FROM clubs c ${where}`, params),
+    ]);
+
+    clubTotal = total.rows[0].total;
+    document.getElementById('clubCount').textContent = `${clubTotal.toLocaleString()} clubs`;
+    renderClubs(rows.rows);
+    renderPagination('clubPagination', clubPage, clubTotal, p => loadClubs(p));
+  } catch(e) {
+    document.getElementById('clubBody').innerHTML = `<tr><td colspan="4" style="padding:24px;color:red">${e.message}</td></tr>`;
   }
-});
+}
 
-// ── Root → app.html ───────────────────────────────────────────────────────────
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'app.html'));
-});
+function renderClubs(rows) {
+  if (!rows.length) {
+    document.getElementById('clubBody').innerHTML = `<tr><td colspan="4"><div class="state-box">No clubs found</div></td></tr>`;
+    return;
+  }
+  document.getElementById('clubBody').innerHTML = rows.map(r => {
+    const logo = r.logo_url ? `<img class="club-logo" src="${esc(r.logo_url)}" onerror="this.style.display='none'" />` : `<span class="club-logo-ph"></span>`;
+    const leagueList = (r.leagues || '').split(', ').slice(0, 4).join(', ') + ((r.leagues || '').split(', ').length > 4 ? ' …' : '');
+    return `<tr>
+      <td>${logo}<span style="font-weight:500">${esc(r.name)}</span></td>
+      <td style="color:var(--ink-mute)">${esc(r.country || '—')}</td>
+      <td style="color:var(--ink-mute)">${(r.player_count || 0).toLocaleString()}</td>
+      <td style="font-size:12px;color:var(--ink-mute);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(leagueList || '—')}</td>
+    </tr>`;
+  }).join('');
+}
 
-// ── Admin ─────────────────────────────────────────────────────────────────────
-app.get('/admin', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
-});
+// ── Pagination ───────────────────────────────────────────────────────
+function renderPagination(id, current, total, onPage) {
+  const pages = Math.ceil(total / PAGE_SIZE);
+  if (pages <= 1) { document.getElementById(id).innerHTML = ''; return; }
 
-// ── Health check ──────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => res.json({ ok: true }));
+  let html = `<span class="page-info">Page ${current} of ${pages}</span>`;
+  html += `<button class="page-btn" ${current === 1 ? 'disabled' : ''} onclick="(${onPage.toString()})(${current - 1})">‹ Prev</button>`;
 
-// ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`footy-history running on http://localhost:${PORT}`);
-});
+  // Show window of pages
+  const start = Math.max(1, current - 2);
+  const end   = Math.min(pages, current + 2);
+  if (start > 1) html += `<button class="page-btn" onclick="(${onPage.toString()})(1)">1</button>${start > 2 ? '<span style="padding:0 4px;color:var(--ink-mute)">…</span>' : ''}`;
+  for (let p = start; p <= end; p++) {
+    html += `<button class="page-btn ${p === current ? 'active' : ''}" onclick="(${onPage.toString()})(${p})">${p}</button>`;
+  }
+  if (end < pages) html += `${end < pages - 1 ? '<span style="padding:0 4px;color:var(--ink-mute)">…</span>' : ''}<button class="page-btn" onclick="(${onPage.toString()})(${pages})">${pages}</button>`;
+
+  html += `<button class="page-btn" ${current === pages ? 'disabled' : ''} onclick="(${onPage.toString()})(${current + 1})">Next ›</button>`;
+  document.getElementById(id).innerHTML = html;
+}
+
+// ── Populate country filters ─────────────────────────────────────────
+async function loadCountryFilters() {
+  try {
+    const [compCountries, clubCountries] = await Promise.all([
+      sql(`SELECT DISTINCT country FROM competition_types WHERE country IS NOT NULL ORDER BY country`),
+      sql(`SELECT DISTINCT country FROM clubs WHERE country IS NOT NULL ORDER BY country LIMIT 200`),
+    ]);
+    populateSelect('compCountryFilter', compCountries.rows.map(r => r.country));
+    populateSelect('clubCountryFilter', clubCountries.rows.map(r => r.country));
+  } catch(e) { console.warn('Country filter load failed:', e.message); }
+}
+
+function populateSelect(id, values) {
+  const sel = document.getElementById(id);
+  const current = sel.value;
+  const first = sel.options[0];
+  sel.innerHTML = '';
+  sel.appendChild(first);
+  for (const v of values) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = v;
+    if (v === current) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
+loadCountryFilters();
+loadCompetitions();
+</script>
+</body>
+</html>
