@@ -253,9 +253,9 @@
   .career-table-wrap { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); margin-bottom: 18px; }
   .career-table { width: 100%; border-collapse: collapse; }
   .career-table th { background: var(--surface); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ink-mute); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); }
-  .career-table th:not(:first-child):not(:nth-child(2)) { text-align: right; }
+  .career-table th:nth-child(n+4) { text-align: right; }
   .career-table td { padding: 11px 14px; font-size: 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  .career-table td:not(:first-child):not(:nth-child(2)) { text-align: right; color: var(--ink-mid); }
+  .career-table td:nth-child(n+4) { text-align: right; color: var(--ink-mid); }
   .career-table tr:last-child td { border-bottom: none; }
   .career-table tr:hover td { background: var(--surface); }
   .club-cell { display: flex; align-items: center; gap: 10px; }
@@ -1169,6 +1169,8 @@ function renderDetail(player, clubs) {
           <tr>
             <th>Club</th>
             <th>Season</th>
+            <th>League</th>
+            <th>Country</th>
             <th>Apps</th>
             <th>Goals</th>
             <th>Ast</th>
@@ -1221,6 +1223,8 @@ function renderDetail(player, clubs) {
               </span>` : ''}
             </div>
           </td>
+          <td style="color:var(--ink-mute);font-size:13px">${hasBreakdown ? '—' : esc(rows[0].league || '—')}</td>
+          <td style="color:var(--ink-mute);font-size:13px">${hasBreakdown ? '—' : esc(rows[0].competitionType === 'League' ? (club.country || '—') : '—')}</td>
           <td>${sumApps}</td>
           <td>${sumGoals}</td>
           <td class="num-muted">${sumAssists}</td>
@@ -1236,10 +1240,10 @@ function renderDetail(player, clubs) {
               <td class="breakdown-indent">
                 <div class="club-cell" style="padding-left:20px">
                   <span class="comp-badge comp-${typeSlug}">${esc(r.competitionType || 'Other')}</span>
-                  <span class="breakdown-league">${esc(r.league || '—')}</span>
                 </div>
               </td>
-              <td></td>
+              <td style="font-size:12px;color:var(--ink-mute)">${esc(r.league || '—')}</td>
+              <td style="font-size:12px;color:var(--ink-mute)">${esc(r.competitionType || '—')}</td>
               <td class="breakdown-num">${r.apps || 0}</td>
               <td class="breakdown-num">${r.goals || 0}</td>
               <td class="breakdown-num">${r.assists || 0}</td>
