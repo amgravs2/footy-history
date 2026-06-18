@@ -507,12 +507,94 @@ async function printStatus() {
   console.log('');
 }
 
+// ── LEAGUES: pull full API catalog ───────────────────────────────────────────
+async function runLeagues() {
+  console.log('\n======== LEAGUES - API catalog import ========\n');
+
+  let page = 1;
+  let total = 0;
+
+  while (true) {
+    const data = await api(`/leagues?page=${page}`);
+    const entries = data.response || [];
+    if (!entries.length) break;
+
+    console.log(`  Page ${page} — ${entries.length} leagues`);
+
+    for (const entry of entries) {
+      const league  = entry.league  || {};
+      const country = entry.country || {};
+      const seasons = entry.seasons || [];
+
+      await q(`
+        INSERT INTO api_leagues (api_id, name, type, country, country_code, logo_url, flag_url, seasons)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ON CONFLICT (api_id) DO UPDATE SET
+          name         = EXCLUDED.name,
+          type         = EXCLUDED.type,
+          country      = EXCLUDED.country,
+          country_code = EXCLUDED.country_code,
+          logo_url     = EXCLUDED.logo_url,
+          flag_url     = EXCLUDED.flag_url,
+          seasons      = EXCLUDED.seasons,
+          updated_at   = now()
+      `, [
+        league.id,
+        league.name         || null,
+        league.type         || null,
+        country.name        || null,
+        country.code        || null,
+        league.logo         || null,
+        country.flag        || null,
+        JSON.stringify(seasons.map(s => s.year)),
+      ]);
+      total++;
+    }
+
+    // API-Football paginates at 100 per page
+    if (entries.length < 100) break;
+    page++;
+  }
+
+  // Now auto-populate competition_types for any league_name in stints
+  // that isn't classified yet, using api_leagues.type as a hint
+  const { rows: unclassified } = await q(`
+    SELECT DISTINCT s.league_name, s.league_country
+    FROM player_club_stints s
+    LEFT JOIN competition_types ct ON ct.league_name = s.league_name
+    WHERE ct.league_name IS NULL AND s.league_name IS NOT NULL
+  `);
+
+  if (unclassified.length) {
+    console.log(`
+  Auto-classifying ${unclassified.length} unclassified leagues from API metadata…`);
+    for (const row of unclassified) {
+      const match = await q(`SELECT type FROM api_leagues WHERE name = $1 LIMIT 1`, [row.league_name]);
+      const apiType = match.rows[0]?.type || 'League';
+      // Map API types to our types
+      const compType = apiType === 'Cup' ? 'Domestic Cup' : 'League';
+      await q(`
+        INSERT INTO competition_types (league_name, competition_type, country)
+        VALUES ($1,$2,$3)
+        ON CONFLICT (league_name) DO NOTHING
+      `, [row.league_name, compType, row.league_country]);
+    }
+  }
+
+  console.log(`
+✅ Leagues import complete — ${total} leagues stored`);
+  const { rows: [c] } = await q(`SELECT COUNT(*)::int AS total FROM api_leagues`);
+  console.log('   Total in api_leagues table: ' + c.total);
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 const JOB = process.env.JOB || 'auto';
 
 try {
   if (JOB === 'status') {
     await printStatus();
+  } else if (JOB === 'leagues') {
+    await runLeagues();
   } else if (JOB === 'phase2') {
     await runPhase2();
   } else if (JOB === 'trophies') {
