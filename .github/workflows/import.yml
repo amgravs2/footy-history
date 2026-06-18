@@ -12,6 +12,7 @@ on:
         type: choice
         options:
           - auto
+          - leagues
           - phase2_priority
           - phase2
           - trophies
