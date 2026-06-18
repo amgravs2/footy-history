@@ -633,6 +633,7 @@ async function updateStatusBarForFilters(conditions, params) {
       FROM players p
       LEFT JOIN player_club_stints s ON s.player_id = p.id AND s.appearances > 0
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
+      LEFT JOIN clubs c ON c.id = s.club_id
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
     `, params);
     const r = data.rows[0];
@@ -861,8 +862,16 @@ function clearFilters() {
 }
 
 // Competition type check — joins competition_types table
-// 'League' = counts as a club stint; everything else is a competition
-const IS_LEAGUE = `ct.competition_type = 'League'`;
+// Only count senior club leagues; exclude youth/reserve clubs by name
+const IS_LEAGUE = `(
+  ct.competition_type = 'League'
+  AND c.name NOT ILIKE '%U16%' AND c.name NOT ILIKE '%U17%'
+  AND c.name NOT ILIKE '%U18%' AND c.name NOT ILIKE '%U19%'
+  AND c.name NOT ILIKE '%U20%' AND c.name NOT ILIKE '%U21%'
+  AND c.name NOT ILIKE '%U23%' AND c.name NOT ILIKE '% II%'
+  AND c.name NOT ILIKE '%reserve%' AND c.name NOT ILIKE '%youth%'
+  AND c.name NOT ILIKE '%primavera%'
+)`;
 
 async function doSearch() {
   const q           = document.getElementById('searchInput').value.trim();
@@ -934,6 +943,7 @@ async function doSearch() {
       FROM players p
       LEFT JOIN player_club_stints s ON s.player_id = p.id AND s.appearances > 0
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
+      LEFT JOIN clubs c ON c.id = s.club_id
       ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
       GROUP BY p.id
       HAVING COUNT(DISTINCT CASE WHEN ${IS_LEAGUE} THEN s.club_id END) >= ${minClubs}
@@ -1007,7 +1017,23 @@ async function loadPlayerFromDb(playerId) {
       JOIN player_club_stints s ON s.player_id = p.id
       JOIN clubs c ON c.id = s.club_id
       LEFT JOIN competition_types ct ON ct.league_name = s.league_name
-      WHERE p.id = $1 AND s.appearances > 0
+      WHERE p.id = $1
+        AND s.appearances > 0
+        AND ct.competition_type IN ('League', 'Domestic Cup', 'Continental Competition')
+        AND c.name NOT ILIKE '%U16%'
+        AND c.name NOT ILIKE '%U17%'
+        AND c.name NOT ILIKE '%U18%'
+        AND c.name NOT ILIKE '%U19%'
+        AND c.name NOT ILIKE '%U20%'
+        AND c.name NOT ILIKE '%U21%'
+        AND c.name NOT ILIKE '%U23%'
+        AND c.name NOT ILIKE '% II%'
+        AND c.name NOT ILIKE '% II'
+        AND c.name NOT ILIKE '%reserve%'
+        AND c.name NOT ILIKE '%reserves%'
+        AND c.name NOT ILIKE '%youth%'
+        AND c.name NOT ILIKE '%primavera%'
+        AND c.name NOT ILIKE '%B team%'
       ORDER BY s.season_year, ct.competition_type, c.name
     `, [playerId]);
 
