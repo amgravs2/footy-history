@@ -511,15 +511,13 @@ async function printStatus() {
 async function runLeagues() {
   console.log('\n======== LEAGUES - API catalog import ========\n');
 
-  let page = 1;
   let total = 0;
 
-  while (true) {
-    const data = await api(`/leagues?page=${page}`);
-    const entries = data.response || [];
-    if (!entries.length) break;
+  const data = await api('/leagues');
+  const entries = data.response || [];
+  console.log(`  ${entries.length} leagues returned from API`);
 
-    console.log(`  Page ${page} — ${entries.length} leagues`);
+  {
 
     for (const entry of entries) {
       const league  = entry.league  || {};
@@ -551,9 +549,6 @@ async function runLeagues() {
       total++;
     }
 
-    // API-Football paginates at 100 per page
-    if (entries.length < 100) break;
-    page++;
   }
 
   // Now auto-populate competition_types for any league_name in stints
