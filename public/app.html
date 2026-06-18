@@ -960,7 +960,7 @@ async function doSearch() {
           (s.league_name = 'Serie A'        AND s.league_country = 'Italy')   OR
           (s.league_name = 'Ligue 1'        AND s.league_country = 'France')
         ) THEN s.club_id END) >= ${minBig5}` : ''}
-      ORDER BY club_count DESC, p.name
+      ORDER BY big5_count DESC, club_count DESC, p.name
       LIMIT 80
     `;
 
