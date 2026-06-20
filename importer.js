@@ -215,7 +215,7 @@ async function runPhase2(priorityOnly = false) {
   let total = job.total_processed || 0;
 
   const seasonsData = await api('/players/seasons');
-  const allSeasons = (seasonsData.response || []).filter(s => s >= 1992);
+  const allSeasons = (seasonsData.response || []).filter(s => s >= 1992 && s <= 2025);
   console.log(`Seasons: ${allSeasons.join(', ')}\n`);
 
   // Priority query: players who appeared in Big 5 or MLS leagues
