@@ -335,7 +335,12 @@ const FIXTURE_SEASONS = [1992,1993,1994,1995,1996,1997,1998,1999,2000,2001,2002,
 async function runFixtures() {
   console.log('\n════════ FIXTURES ════════\n');
   const job = await getProgress('fixtures');
-  let prog = job.progress || { leagueIdx: 0, seasonIdx: 0, fixtureOffset: 0 };
+  const rawProg = job.progress || {};
+  let prog = {
+    leagueIdx:     rawProg.leagueIdx     ?? 0,
+    seasonIdx:     rawProg.seasonIdx     ?? 0,
+    fixtureOffset: rawProg.fixtureOffset ?? 0,
+  };
   let total = job.total_processed || 0;
 
   const leagueEntries = Object.entries(PRIORITY_FIXTURE_LEAGUES);
